@@ -1,0 +1,3 @@
+[submodule "Yordi.Tools"]
+	path = Yordi.Tools
+	url = https://github.com/leoyordi/Yordi.Tools.git
