@@ -2,10 +2,22 @@ using Yordi.Tools;
 
 namespace Yordi.EntityMultiSQL
 {
+    /// <summary>
+    /// Classe usada para montar instruções SQL, especialmente as relacionadas à clausula WHERE
+    /// </summary>
     public class Chave : IChave
     {
+        /// <summary>
+        /// Nome do campo no banco de dados
+        /// </summary>
         public string? Campo { get; set; }
+        /// <summary>
+        /// Valor do campo
+        /// </summary>
         public object? Valor { get; set; }
+        /// <summary>
+        /// Tipo do campo
+        /// </summary>
         public Tipo Tipo { get; set; }
 
         public Operador Operador { get; set; }

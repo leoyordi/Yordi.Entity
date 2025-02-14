@@ -2,8 +2,19 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+	<ImplicitUsings>enable</ImplicitUsings>
+	<Nullable>enable</Nullable>
+	<Title>Framework para SQLite, MySQL e MSSQL</Title>
+	<Authors>Leopoldo Yordi;leoyordi</Authors>
+	<GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+	<Description>
+		Framework para criar instruções SQL para SQLite, MySQL e MSSQL. CRUD, cria tabelas e campos com base nos objetos POCO.
+	</Description>
+	<PackageTags>Yordi;Tools;Ferramentas; Entity;MySQL;SQLite</PackageTags>
+	<PackageId>Yordi.EntityMultiSQL</PackageId>
+	<Version>1.0.0</Version>
+	<Company>Yordi Sistemas Inteligentes</Company>
+	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>

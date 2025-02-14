@@ -1,5 +1,9 @@
 namespace Yordi.EntityMultiSQL
 {
+    /// <summary>
+    /// Classe usada para montar instruções SQL, criar tabelas e alterar colunas.<br/>
+    /// Os atributos nas propriedades das classes POCO são usados para transformar as propriedades em colunas de tabelas.<br/>
+    /// </summary>
     public class ColumnTable : Chave
     {
         public bool IsAutoIncrement { get; set; }

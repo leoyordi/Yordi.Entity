@@ -153,7 +153,6 @@ namespace Yordi.EntityMultiSQL
 
         public static DbParameter CriaParameter(DbCommand cmd, IChave info)
         {
-
             // Cria o Parâmetro e add seu valores
             DbParameter param = cmd.CreateParameter();
 
