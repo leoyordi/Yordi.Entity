@@ -151,7 +151,7 @@ namespace Yordi.EntityMultiSQL
                         s.Append(' ');
                     }
                     else if (_bd.TipoDB == TipoDB.SQLite)
-                        s.Append("TEXT COLLATE NOCASE");
+                        s.Append("TEXT COLLATE NOCASE ");
                     break;
             }
             return s.ToString();
