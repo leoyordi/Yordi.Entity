@@ -12,7 +12,7 @@
 	</Description>
 	<PackageTags>Yordi;Tools;Ferramentas; Entity;MySQL;SQLite</PackageTags>
 	<PackageId>Yordi.EntityMultiSQL</PackageId>
-	<Version>1.0.0</Version>
+	<Version>1.0.1</Version>
 	<Company>Yordi Sistemas Inteligentes</Company>
 	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
   </PropertyGroup>
@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Yordi.Tools\Yordi.Tools\Yordi.Tools.csproj" />
+	  <None Include="README.md" Pack="true" PackagePath="\"/>
   </ItemGroup>
 
 </Project>
