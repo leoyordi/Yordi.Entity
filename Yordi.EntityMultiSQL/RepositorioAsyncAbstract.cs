@@ -714,7 +714,61 @@ namespace Yordi.EntityMultiSQL
             if (!reader.IsClosed) reader.Close();
             return lista;
         }
-        
+
+        protected List<T>? FromDataTable(DataTable? table)
+        {
+            if (table == null || table.Rows.Count == 0)
+            {
+                _msg = "Nenhum resultado encontrado";
+                if (table != null) table.Dispose();
+                return null;
+            }
+
+            List<T> lista = new List<T>();
+            try
+            {                
+                _msg = String.Empty;
+                Rows(table.Rows.Count);
+                for (int i = 0; i < table.Rows.Count; i++)
+                {
+                    var o = Objeto(table.Rows[i]);
+                    lista.Add(o);
+                    Progresso(i);
+                }
+            }
+            catch (ConstraintException ce)
+            {
+                DataRow[] rowErrors = table.GetErrors();
+                if (rowErrors != null && rowErrors.Length > 0)
+                {
+                    ce.Data.Add("Erros", rowErrors.Length);
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < rowErrors.Length; i++)
+                    {
+                        sb.Clear();
+                        sb.Append(rowErrors[i].RowError);
+                        sb.Append('|');
+                        foreach (DataColumn col in rowErrors[i].GetColumnsInError())
+                        {
+                            sb.Append(col.ColumnName);
+                            sb.Append(": ");
+                            sb.Append(rowErrors[i].GetColumnError(col));
+                        }
+                        ce.Data.Add($"Linha {i}", sb.ToString());
+                    }
+                }
+                Error(ce);
+            }
+            catch (Exception e)
+            {
+                e.Data.Add("Objeto", typeof(T).Name);
+                Error(e);
+            }
+            table.Rows.Clear();
+            table.Dispose();
+            return lista;
+        }
+
         /// <summary>
         /// Procura o objeto de acordo com o informado no objeto 'where'
         /// </summary>
