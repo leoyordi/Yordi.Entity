@@ -123,6 +123,25 @@ namespace Yordi.EntityMultiSQL
             }
             return dt;
         }
+        protected async Task<DataTable> SelectTransaction(DbConnection conexaoSql, string sql, IEnumerable<Chave> where)
+        {
+            DataTable dt = new DataTable();
+            if (!sql.StartsWith("SELECT", StringComparison.InvariantCultureIgnoreCase))
+                return dt;
+            using (DbCommand selectCommand = conexaoSql.CreateCommand())
+            {
+                selectCommand.CommandText = sql;
+                if (where != null && where.Any())
+                {
+                    foreach (var c in where)
+                        selectCommand.Parameters.Add(BDTools.CriaParameter(selectCommand, c)); // WithValue($"@{c.Nome}", c.Valor);
+                }
+                using (DbDataReader reader = await selectCommand.ExecuteReaderAsync())
+                    dt.Load(reader);
+            }
+            return dt;
+        }
+
         protected async Task<(bool, List<ColumnTable>)> InsertTransaction(DbConnection conexaoSql, List<ColumnTable> colunas)
         {
             ColumnTable? coluna = null;
