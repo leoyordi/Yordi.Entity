@@ -657,9 +657,10 @@ namespace Yordi.EntityMultiSQL
             }
 
             List<T> lista = new List<T>();
-            DataTable dt = new DataTable();
+            DataTable? dt = new DataTable();
             try
             {
+                //dt = MyLoad(reader);
                 dt.Load(reader);
                 if (dt == null)
                 {
@@ -673,6 +674,7 @@ namespace Yordi.EntityMultiSQL
                     if (!reader.IsClosed) reader.Close();
                     return null;
                 }
+                if (!reader.IsClosed) reader.Close();
 
                 _msg = String.Empty;
                 Rows(dt.Rows.Count);
@@ -685,26 +687,7 @@ namespace Yordi.EntityMultiSQL
             }
             catch (ConstraintException ce)
             {
-                DataRow[] rowErrors = dt.GetErrors();
-                if (rowErrors != null && rowErrors.Length > 0)
-                {
-                    ce.Data.Add("Erros", rowErrors.Length);
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < rowErrors.Length; i++)
-                    {
-                        sb.Clear();
-                        sb.Append(rowErrors[i].RowError);
-                        sb.Append('|');
-                        foreach (DataColumn col in rowErrors[i].GetColumnsInError())
-                        {
-                            sb.Append(col.ColumnName);
-                            sb.Append(": ");
-                            sb.Append(rowErrors[i].GetColumnError(col));
-                        }
-                        ce.Data.Add($"Linha {i}", sb.ToString());
-                    }
-                }
-                Error(ce);
+                ConstraintExceptionError(dt, ce);
             }
             catch (Exception e)
             {
@@ -713,6 +696,97 @@ namespace Yordi.EntityMultiSQL
             }
             if (!reader.IsClosed) reader.Close();
             return lista;
+        }
+
+
+        private DataTable? MyLoad(DbDataReader? reader)
+        {
+            if (reader == null || !reader.HasRows)
+            {
+                _msg = "Nenhum resultado encontrado";
+                if (reader != null && !reader.IsClosed) reader.Close();
+                return null;
+            }
+            DataTable dt = new DataTable();
+            try
+            {
+                // Configurar manualmente as colunas do DataTable
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    var name = reader.GetName(i);
+                    var type = reader.GetFieldType(i);
+                    dt.Columns.Add(name, type);
+                }
+
+                // Carregar os dados no DataTable
+                while (reader.Read())
+                {
+                    DataRow row = dt.NewRow();
+                    for (int i = 0; i < reader.FieldCount; i++)
+                        row[i] = reader.GetValue(i);
+                    dt.Rows.Add(row);
+                }
+            }
+            catch (ArgumentNullException ex)
+            {
+                ex.Data.Add("Objeto", typeof(T).Name);
+                Error(ex);
+            }
+            catch (ArgumentException ex)
+            {
+                ex.Data.Add("Objeto", typeof(T).Name);
+                Error(ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                ex.Data.Add("Objeto", typeof(T).Name);
+                Error(ex);
+            }
+            catch (ConstraintException ex)
+            {
+                ConstraintExceptionError(dt, ex);
+            }
+            catch (DataException ex)
+            {
+                ex.Data.Add("Objeto", typeof(T).Name);
+                Error(ex);
+            }
+            catch (Exception e)
+            {
+                e.Data.Add("Objeto", typeof(T).Name);
+                Error(e);
+            }
+            return dt;
+        }
+        private void ConstraintExceptionError(DataTable? dt, ConstraintException ce)
+        {
+            if (dt == null)
+            {
+                ce.Data.Add("Objeto", typeof(T).Name);
+                ce.Data.Add("DataTable", "Não foi possível rastrear erros. DataTable é nulo aqui.");
+                Error(ce);
+                return;
+            }
+            DataRow[] rowErrors = dt.GetErrors();
+            if (rowErrors != null && rowErrors.Length > 0)
+            {
+                ce.Data.Add("Erros", rowErrors.Length);
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < rowErrors.Length; i++)
+                {
+                    sb.Clear();
+                    sb.Append(rowErrors[i].RowError);
+                    sb.Append('|');
+                    foreach (DataColumn col in rowErrors[i].GetColumnsInError())
+                    {
+                        sb.Append(col.ColumnName);
+                        sb.Append(": ");
+                        sb.Append(rowErrors[i].GetColumnError(col));
+                    }
+                    ce.Data.Add($"Linha {i}", sb.ToString());
+                }
+            }
+            Error(ce);
         }
 
         protected List<T>? FromDataTable(DataTable? table)
@@ -738,26 +812,7 @@ namespace Yordi.EntityMultiSQL
             }
             catch (ConstraintException ce)
             {
-                DataRow[] rowErrors = table.GetErrors();
-                if (rowErrors != null && rowErrors.Length > 0)
-                {
-                    ce.Data.Add("Erros", rowErrors.Length);
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < rowErrors.Length; i++)
-                    {
-                        sb.Clear();
-                        sb.Append(rowErrors[i].RowError);
-                        sb.Append('|');
-                        foreach (DataColumn col in rowErrors[i].GetColumnsInError())
-                        {
-                            sb.Append(col.ColumnName);
-                            sb.Append(": ");
-                            sb.Append(rowErrors[i].GetColumnError(col));
-                        }
-                        ce.Data.Add($"Linha {i}", sb.ToString());
-                    }
-                }
-                Error(ce);
+                ConstraintExceptionError(table, ce);
             }
             catch (Exception e)
             {

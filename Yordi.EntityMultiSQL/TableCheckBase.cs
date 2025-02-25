@@ -71,7 +71,7 @@ namespace Yordi.EntityMultiSQL
                     if (_bd.TipoDB == TipoDB.MySQL)
                         s.Append("DECIMAL");
                     else if (_bd.TipoDB == TipoDB.SQLite)
-                        s.Append("NUMERIC");//TANTO FAZ O TIPO
+                        s.Append("REAL");
                     if (!string.IsNullOrEmpty(coluna.Tamanho))
                         s.Append(coluna.Tamanho);
                     else
@@ -84,7 +84,7 @@ namespace Yordi.EntityMultiSQL
                     break;
                 case Tipo.MONEY:
                     if (_bd.TipoDB == TipoDB.SQLite)
-                        s.Append("NUMERIC (18,4) ");//TANTO FAZ O TIPO
+                        s.Append("REAL (18,4) ");
                     else
                         s.Append("DECIMAL(18, 4) ");
                     if (coluna.ValorPadrao != null)

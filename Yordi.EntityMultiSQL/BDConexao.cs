@@ -1,7 +1,6 @@
-using Microsoft.Data.Sqlite;
-using SQLitePCL;
 using System.Data;
 using System.Data.Common;
+using System.Data.SQLite;
 using System.Reflection;
 using System.Text.Json.Serialization;
 using Yordi.Tools;
@@ -41,7 +40,7 @@ namespace Yordi.EntityMultiSQL
         {
             _dbConfig = dbConfig;
             _nova = true;
-            Batteries.Init();
+            //Batteries.Init();
             ListaTabelas();
         }
 
@@ -130,7 +129,7 @@ namespace Yordi.EntityMultiSQL
                     {
                         try
                         {
-                            _conexao = new SqliteConnection(conn);
+                            _conexao = new SQLiteConnection(conn);
                         }
                         catch (Exception e) 
                         { 
@@ -149,9 +148,12 @@ namespace Yordi.EntityMultiSQL
         }
         private void CreateSQLiteDB()
         {
-            //string file = FileTools.Combina(_dbConfig.Local, _dbConfig.Database);
-            //if (!FileTools.ArquivoExiste(file))
-            //    SQLiteConnection.CreateFile(file);
+            if (string.IsNullOrEmpty(_dbConfig.Local) || string.IsNullOrEmpty(_dbConfig.Database))
+
+                throw new ArgumentNullException("Local ou Database", "Sem dados de conexão de banco de dados");
+            string file = FileTools.Combina(_dbConfig.Local, _dbConfig.Database);
+            if (!FileTools.ArquivoExiste(file))
+                SQLiteConnection.CreateFile(file);
         }
 
         public string? ObterInformacoesArquivoSQLite()
@@ -159,10 +161,10 @@ namespace Yordi.EntityMultiSQL
             string? informacoesArquivo = string.Empty;
             try
             {
-                using (var conexao = new SqliteConnection(_dbConfig.StringDeConexaoMontada()))
+                using (var conexao = new SQLiteConnection(_dbConfig.StringDeConexaoMontada()))
                 {
                     conexao.Open();
-                    using (var comando = new SqliteCommand("PRAGMA schema_version", conexao))
+                    using (var comando = new SQLiteCommand("PRAGMA schema_version", conexao))
                     {
                         informacoesArquivo = comando?.ExecuteScalar()?.ToString();
                     }

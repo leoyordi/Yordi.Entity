@@ -20,6 +20,11 @@ Yordi.EntityMultiSQL é um framework para criar instruções SQL para SQLite, My
 Para instalar o pacote, adicione a seguinte referência ao seu projeto:
 <pre>dotnet add package Yordi.EntityMultiSQL</pre>
 
+## Evolução
+. 1.0.0 - Versão inicial
+. 1.0.1 - Correção de bugs
+. 1.0.2 - Correção de bugs
+. 1.0.3 - Mudança de biblioteca de comunicação com SQLite. Voltamos para System.Data.SLite.
 
 ## Uso
 

@@ -32,7 +32,6 @@ namespace Yordi.EntityMultiSQL
             }
             catch (Exception ex)
             {
-                _msg = ex.Message;
                 Error(ex);
                 throw;
             }
@@ -58,13 +57,16 @@ namespace Yordi.EntityMultiSQL
             {
                 string? json = objeto == null ? null : Conversores.ToJson(objeto, true);
                 File.WriteAllText(_local, json);
-                _msg = "Arquivo escrito";
-                Message(_msg);
+                Message($"Arquivo {_local} escrito");
                 return true;
+            }
+            catch (IOException io)
+            {
+                Error(io.Message);
+                return false;
             }
             catch (Exception e)
             {
-                _msg = e.Message;
                 Error(e);
                 return false;
             }
@@ -99,8 +101,7 @@ namespace Yordi.EntityMultiSQL
         {
             if (string.IsNullOrEmpty(_local))
             {
-                _msg = "Arquivo não informado";
-                Message(_msg);
+                Message("Arquivo não informado");
                 return null;
             }
             if (!File.Exists(_local))
@@ -124,7 +125,6 @@ namespace Yordi.EntityMultiSQL
             {
                 MontaNomeArquivoCompleto();
                 return FileTools.ReadAllText(_local, _encoding);
-                //return FileTools.ReadAllText(_local);
             }
             catch (Exception e)
             {
@@ -182,14 +182,13 @@ namespace Yordi.EntityMultiSQL
             MontaNomeArquivoCompleto();
             if (String.IsNullOrEmpty(_local))
             {
-                _msg = "Arquivo não informado";
+                Message("Arquivo não informado");
                 return false;
             }
             try
             {
                 await FileTools.WriteTextAsync(_local, texto, _encoding);
-                _msg = "Arquivo escrito";
-                Message(_msg);
+                Message($"Arquivo {_local} escrito");
                 return true;
             }
             catch (Exception e)
@@ -203,8 +202,7 @@ namespace Yordi.EntityMultiSQL
             try
             {
                 await FileTools.WriteTextAsync(arquivo, texto, _encoding);
-                _msg = "Arquivo escrito";
-                Message(_msg);
+                Message($"Arquivo {arquivo} escrito");
                 return true;
             }
             catch (Exception e)
