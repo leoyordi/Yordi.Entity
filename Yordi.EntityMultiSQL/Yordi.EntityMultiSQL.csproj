@@ -12,21 +12,17 @@
 	</Description>
 	<PackageTags>Yordi;Tools;Ferramentas; Entity;MySQL;SQLite</PackageTags>
 	<PackageId>Yordi.EntityMultiSQL</PackageId>
-	<Version>1.0.3</Version>
+	<Version>1.0.4</Version>
 	<Company>Yordi Sistemas Inteligentes</Company>
 	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
+	<PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-	  <PackageReference Include="SQLite" Version="3.13.0" />
+	  <!--PackageReference Include="SQLite" Version="3.13.0" /-->
 	  <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
 	  <PackageReference Include="SQLitePCLRaw.core" Version="2.1.10" />
 	  <PackageReference Include="System.Data.SQLite" Version="1.0.119" />
+	  <PackageReference Include="Yordi.Tools" Version="1.0.5" />
   </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Yordi.Tools\Yordi.Tools\Yordi.Tools.csproj" />
-	  <None Include="README.md" Pack="true" PackagePath="\" />
-  </ItemGroup>
-
 </Project>
