@@ -1,11 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.13.35806.99 d17.13
+VisualStudioVersion = 17.13.35806.99
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yordi.EntityMultiSQL", "Yordi.EntityMultiSQL\Yordi.EntityMultiSQL.csproj", "{16974125-38C5-2E41-9B5E-A0FFC760280E}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yordi.Tools", "Yordi.Tools\Yordi.Tools\Yordi.Tools.csproj", "{6832D0AB-7B24-7E0F-1BFE-B3B373467ABB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -17,10 +15,6 @@ Global
 		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{6832D0AB-7B24-7E0F-1BFE-B3B373467ABB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{6832D0AB-7B24-7E0F-1BFE-B3B373467ABB}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{6832D0AB-7B24-7E0F-1BFE-B3B373467ABB}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{6832D0AB-7B24-7E0F-1BFE-B3B373467ABB}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
