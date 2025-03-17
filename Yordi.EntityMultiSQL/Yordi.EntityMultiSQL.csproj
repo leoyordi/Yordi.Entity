@@ -17,8 +17,11 @@
 	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
 	<PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="" />
+	</ItemGroup>
 
-  <ItemGroup>
+	<ItemGroup>
 	  <!--PackageReference Include="SQLite" Version="3.13.0" /-->
 	  <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
 	  <PackageReference Include="SQLitePCLRaw.core" Version="2.1.10" />
