@@ -197,7 +197,12 @@ namespace Yordi.EntityMultiSQL
                 }
             }
             if (Verbose)
-                Message($"Insert {resultado} registros na tabela {_tableName}");
+            {
+                if (coluna?.Valor == null)
+                    Message($"Insert {resultado} registros na tabela {_tableName}");
+                else
+                    Message($"Insert registro na tabela {_tableName} com AutoIncrement = {coluna.Valor}");
+            }
             return (resultado > 0, colunas);
         }
         protected async Task<bool> UpdateTransaction(DbConnection conexaoSql, List<ColumnTable> colunas)
