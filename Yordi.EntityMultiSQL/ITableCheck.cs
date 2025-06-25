@@ -7,5 +7,6 @@ namespace Yordi.EntityMultiSQL
         Task<bool> CriaTabela<T>(bool excluirSeExisitir = false) where T : class;
         Task<bool> CriaTabela(Type type, bool excluirSeExisitir = false);
         bool DBConectado { get; }
+        bool Debug { get; set; }
     }
 }

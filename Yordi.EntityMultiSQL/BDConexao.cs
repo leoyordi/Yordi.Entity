@@ -1,5 +1,7 @@
+using MySql.Data.MySqlClient;
 using System.Data;
 using System.Data.Common;
+using System.Data.SqlClient;
 using System.Data.SQLite;
 using System.Reflection;
 using System.Text.Json.Serialization;
@@ -35,6 +37,8 @@ namespace Yordi.EntityMultiSQL
                 return true;
             }
         }
+
+        public bool Verbose => _dbConfig.Verbose ?? false;
 
         public BDConexao(DBConfig dbConfig)
         {
@@ -75,7 +79,8 @@ namespace Yordi.EntityMultiSQL
                 {
                     if (conexao.State == ConnectionState.Open)
                     {
-                        ServerVersion = Conversores.ToVersion(conexao.ServerVersion);
+                        if (ServerVersion == null)
+                            await DefinirVersaoServidorAsync(conexao);
                         conectado = true;
                         break;
                     }
@@ -103,6 +108,23 @@ namespace Yordi.EntityMultiSQL
             }
             return conexao;
         }
+        private async Task DefinirVersaoServidorAsync(DbConnection conexao)
+        {
+            if (_dbConfig.TipoDB == TipoDB.MySQL && conexao.ServerVersion == null)
+            {
+                using var comando = conexao.CreateCommand();
+                comando.CommandText = "SELECT VERSION()";
+                var versao = await comando.ExecuteScalarAsync();
+                if (versao != null)
+                {
+                    ServerVersion = Conversores.ToVersion(versao.ToString());
+                }
+            }
+            else
+            {
+                ServerVersion = Version.Parse(conexao.ServerVersion);
+            }
+        }
         public async Task<bool> IsServerConnectedAsync()
         {
             try
@@ -121,7 +143,9 @@ namespace Yordi.EntityMultiSQL
             switch (_dbConfig.TipoDB)
             {
                 case TipoDB.MySQL:
-                    throw new ArgumentException("MySQL não instalado neste sistema. Consulte desenvolvedor"); // _conexao = new MySqlConnection(_dbConfig.ConnectionString);
+                    _conexao = new MySqlConnection(_dbConfig.StringDeConexaoMontada());
+                    break;
+                case TipoDB.SQLite:
                 default:
                     CreateSQLiteDB();
                     string? conn = _dbConfig.StringDeConexaoMontada();
@@ -149,11 +173,14 @@ namespace Yordi.EntityMultiSQL
         private void CreateSQLiteDB()
         {
             if (string.IsNullOrEmpty(_dbConfig.Local) || string.IsNullOrEmpty(_dbConfig.Database))
-
                 throw new ArgumentNullException("Local ou Database", "Sem dados de conexão de banco de dados");
             string file = FileTools.Combina(_dbConfig.Local, _dbConfig.Database);
             if (!FileTools.ArquivoExiste(file))
+            {
+                if (Verbose)
+                    Message($"Criando arquivo SQLite: {file}");
                 SQLiteConnection.CreateFile(file);
+            }
         }
 
         public string? ObterInformacoesArquivoSQLite()

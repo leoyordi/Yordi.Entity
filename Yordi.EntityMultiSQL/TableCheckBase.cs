@@ -11,12 +11,21 @@ namespace Yordi.EntityMultiSQL
         private readonly IBDConexao _bd;
         protected internal readonly BDTools _bdTools;
         private protected string? _tableName;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether debug mode is enabled.
+        /// </summary>
+        public bool Debug { get; set; } = false;
+
         public TableCheckBase(IBDConexao bd)
         {
             _bd = bd;
             _bdTools = new BDTools(bd);
         }
-
+        public TableCheckBase(IBDConexao bd, bool debug) : this(bd)
+        {
+            Debug = debug;
+        }
         public bool DBConectado
         {
             get
@@ -157,11 +166,16 @@ namespace Yordi.EntityMultiSQL
             return s.ToString();
         }
 
-        internal List<string>? ListaColunas(DbDataReader reader)
+        internal List<string>? ListaColunas(DbDataReader? reader)
         {
-            if (!reader.HasRows)
+            if (reader == null || !reader.HasRows)
             {
-                //Message("Nenhum registro encontrado");
+                if (reader != null)
+                {
+                    if (reader.IsClosed == false)
+                        reader.Close();
+                    reader.Dispose();
+                }
                 return null;
             }
 
@@ -195,6 +209,15 @@ namespace Yordi.EntityMultiSQL
             catch (Exception e)
             {
                 Error(e);
+            }
+            finally
+            {
+                if (reader != null)
+                {
+                    if (reader.IsClosed == false)
+                        reader.Close();
+                    reader.Dispose();
+                }
             }
             return lista;
         }

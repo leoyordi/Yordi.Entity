@@ -40,10 +40,10 @@ namespace Yordi.EntityMultiSQL
         {
             T? result = null;
             result = await Update(obj);
-            if (result != null && result is IToString o)
-                Message($"Salvo {o}");
-            else
-                Message($"{_tableName} salvos: {(result == null ? 0 : 1)}");
+            //if (result != null && result is IToString o)
+            //    Message($"Salvo {o}");
+            //else
+            //    Message($"{_tableName} salvos: {(result == null ? 0 : 1)}");
             return result;
         }
 
@@ -196,6 +196,8 @@ namespace Yordi.EntityMultiSQL
                     RegistraErro(e, sql, colunas);
                 }
             }
+            if (Verbose)
+                Message($"Insert {resultado} registros na tabela {_tableName}");
             return (resultado > 0, colunas);
         }
         protected async Task<bool> UpdateTransaction(DbConnection conexaoSql, List<ColumnTable> colunas)
@@ -241,6 +243,8 @@ namespace Yordi.EntityMultiSQL
 
                     resultado = await updateCmm.ExecuteNonQueryAsync();
                 }
+                if (Verbose)
+                    Message($"Update {resultado} registros na tabela {_tableName}");
             }
             catch (Exception e)
             {
@@ -665,16 +669,13 @@ namespace Yordi.EntityMultiSQL
                 if (dt == null)
                 {
                     _msg = "DbDataReader to DataTable resultou em null";
-                    if (!reader.IsClosed) reader.Close();
                     return null;
                 }
                 if (dt.Rows.Count == 0)
                 {
                     _msg = "DbDataReader to DataTable resultou em nenhum registro";
-                    if (!reader.IsClosed) reader.Close();
                     return null;
                 }
-                if (!reader.IsClosed) reader.Close();
 
                 _msg = String.Empty;
                 Rows(dt.Rows.Count);
@@ -694,7 +695,11 @@ namespace Yordi.EntityMultiSQL
                 e.Data.Add("Objeto", typeof(T).Name);
                 Error(e);
             }
-            if (!reader.IsClosed) reader.Close();
+            finally
+            {
+                if (reader != null && !reader.IsClosed)
+                    reader.Close();
+            }
             return lista;
         }
 
@@ -831,11 +836,9 @@ namespace Yordi.EntityMultiSQL
         /// <returns></returns>
         protected virtual async Task<T?> Item(IEnumerable<Chave> where)
         {
+            string sql = SelectWithWhereParameters(where);
             try
             {
-                string sql = SelectWithWhereParameters(where);
-                DataTable dt = new DataTable();
-
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
                     using (DbCommand cmm = conexaoSql.CreateCommand())
@@ -845,35 +848,14 @@ namespace Yordi.EntityMultiSQL
                         {
                             cmm.Parameters.Add(BDTools.CriaParameter(cmm, c)); // WithValue($"@{c.Nome}", c.Valor);
                         }
-
                         using (DbDataReader reader = await cmm.ExecuteReaderAsync())
-                        {
-                            dt.Load(reader);
-                        }
+                            return FromDataReader(reader)?.FirstOrDefault();
                     }
                 }
-                if (dt == null || dt.Rows == null || dt.Rows.Count == 0)
-                {
-                    Message($"Nenhum {_tableName} encontrado");
-                    return default(T);
-                }
-                if (dt.Rows.Count > 1)
-                {
-                    Message($"Mais de 1 {_tableName} encontrado");
-                    return default(T);
-                }
-
-                _msg = String.Empty;
-
-                var o = Objeto(dt.Rows[0]);
-                if (!String.IsNullOrEmpty(base._msg))
-                    Error(base._msg);
-
-                return o;
             }
             catch (Exception ex)
             {
-                Error(ex);
+                RegistraErro(ex, sql, where);
                 return null;
             }
         }
@@ -1351,6 +1333,8 @@ namespace Yordi.EntityMultiSQL
                         }
                     }
                 }
+                if (Verbose)
+                    Message($"Atualizados: {atualizados.Count} de {lista.Count()} em {_tableName}");
             }
             catch (Exception e)
             {
@@ -1507,6 +1491,9 @@ namespace Yordi.EntityMultiSQL
                         }
                     }
                 }
+
+                if (Verbose)
+                    Message($"Atualizados: {atualizado.Count} de {l.Count()} em {_tableName}");
             }
             catch (Exception e)
             {
@@ -1543,6 +1530,8 @@ namespace Yordi.EntityMultiSQL
                         resultado = await cmm.ExecuteNonQueryAsync();
                     }
                 }
+                if (Verbose)
+                    Message($"Atualizado: {resultado} linha(s) afetada(s) em {_tableName}");
             }
             catch (Exception e)
             {
@@ -1582,10 +1571,10 @@ namespace Yordi.EntityMultiSQL
                     objD.UsuarioAlteracao = ControleAlteracao.Usuario;
                 }
             }
-
             StringBuilder sql = new StringBuilder(InsertWithParameters(obj, false));
             sql.Append(' ');
             sql.Append(UpdateOnDuplicateKey(obj));
+            int resultado = 0;
             try
             {
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
@@ -1616,7 +1605,7 @@ namespace Yordi.EntityMultiSQL
                                 cmm.Parameters.Add(BDTools.CriaParameter(cmm, d)); // WithValue($"@{c.Nome}", c.Valor);
                             }
                             // resultado = 2 -> UPDATE foi feito; = 1 -> INSERT
-                            int resultado = (int)await cmm.ExecuteNonQueryAsync();
+                            resultado = (int)await cmm.ExecuteNonQueryAsync();
                             if (resultado > 0)
                             {
                                 if (guid != Guid.Empty && !string.IsNullOrEmpty(nomeAuto))
@@ -1657,6 +1646,11 @@ namespace Yordi.EntityMultiSQL
                 Error(e);
                 return null;
             }
+            finally
+            {
+                if (Verbose)
+                    Message($"Incluído/Alterado [Retorno: {resultado}]: {obj}");
+            }
         }
 
         private async Task<int> Delete(T obj)
@@ -1679,6 +1673,8 @@ namespace Yordi.EntityMultiSQL
 
                     resultado = await cmm.ExecuteNonQueryAsync();
                 }
+                if (Verbose)
+                    Message($"Excluído: {obj} - {resultado} linha(s) afetada(s)");
             }
             catch (Exception e)
             {
@@ -1724,6 +1720,8 @@ namespace Yordi.EntityMultiSQL
                         }
                     }
                 }
+                if (Verbose)
+                    Message($"Excluídos: {lista.Count()} - {rowAffected} linha(s) afetada(s) em {_tableName}");
             }
             catch (Exception e)
             {
@@ -1792,6 +1790,8 @@ namespace Yordi.EntityMultiSQL
 
                     resultado = await cmm.ExecuteNonQueryAsync();
                 }
+                if (Verbose)
+                    Message($"Excluídos: {camposParaWhere.Count()} - {resultado} linha(s) afetada(s) em {_tableName}");
             }
             catch (Exception e)
             {
@@ -1825,6 +1825,8 @@ namespace Yordi.EntityMultiSQL
                     }
                     _msg = String.Empty;
                 }
+                if (Verbose)
+                    Message($"Comando SQL executado: {sql} - {rows} linha(s) afetada(s)");
             }
             catch (Exception e)
             {

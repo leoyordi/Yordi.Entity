@@ -21,6 +21,7 @@ namespace Yordi.EntityMultiSQL
 
         public bool AllowCurrentTimeStamp { get => _bd.AllowCurrentTimeStamp; }
         protected string TableName { get => _tableName; set => _tableName = value; }
+        public bool Verbose => _bd.DBConfig.Verbose ?? false;
 
         internal void CheckTableName(T obj)
         {

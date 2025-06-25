@@ -26,6 +26,11 @@ namespace Yordi.EntityMultiSQL
             TipoDB = tipoDB;
             _bd = bd;
         }
+        public TableCheckByType(IBDConexao bd, bool debug) : base(bd, debug)
+        {
+            TipoDB = bd.TipoDB;
+            _bd = bd;
+        }
 
         public async Task<bool> TryConnectToDB()
         {
@@ -102,15 +107,22 @@ namespace Yordi.EntityMultiSQL
                     }
                     cmm.CommandText = sql.ToString();
 
-                    DbDataReader reader = await cmm.ExecuteReaderAsync();
-
-                    if (reader == null)
-                        return false;
-
-                    if (reader.HasRows)
+                    using (DbDataReader reader = await cmm.ExecuteReaderAsync())
                     {
-                        while (reader.Read())
-                            resultado++;
+                        if (reader == null)
+                            return false;
+
+                        if (reader.HasRows)
+                        {
+                            while (reader.Read())
+                                resultado++;
+                        }
+                        if (reader != null)
+                        {
+                            if (reader.IsClosed == false)
+                                reader.Close();
+                            reader.Dispose();
+                        }
                     }
                 }
             }
@@ -232,16 +244,18 @@ namespace Yordi.EntityMultiSQL
         public virtual async Task<bool> CriaTabela(Type type, bool excluirSeExisitir = false)
         {
             pocos.Add(type);
-            Message($"Verificando tabela {type.Name}: ");
+            if (Debug)
+                Message($"Verificando tabela {type.Name}: ");
             bool tabelaExiste = await TabelaExiste(type);
             if (tabelaExiste && !excluirSeExisitir)
             {
-                Message($"Tabela {type.Name} existe");
+                if (Debug)
+                    Message($"Tabela {type.Name} existe");
                 return await AlteraTabela(type);
                 //return true;
             }
             else if (!tabelaExiste)
-                Message($"Tabela {type.Name} NÃO existe");
+                if (Debug) Message($"Tabela {type.Name} NÃO existe");
 
             string sql;
             int resultado = 0;
@@ -257,7 +271,7 @@ namespace Yordi.EntityMultiSQL
                     {
                         sql = $"DROP TABLE {type.Name}";
                         cmm.CommandText = sql;
-                        Message($"Excluindo tabela {type.Name}");
+                        if (Debug) Message($"Excluindo tabela {type.Name}");
                         await cmm.ExecuteNonQueryAsync();
                     }
                     sql = CreateTable(type);
@@ -273,7 +287,7 @@ namespace Yordi.EntityMultiSQL
                     tabelaExiste = await TabelaExiste(type);
                     if (tabelaExiste)
                     {
-                        Message($"Tabela {type.Name} criada");
+                        if (Debug) Message($"Tabela {type.Name} criada");
                         resultado = -1;
                         if (_bd.DBConfig.TipoDB == TipoDB.MySQL)
                         {
@@ -320,10 +334,10 @@ namespace Yordi.EntityMultiSQL
                 string? add = await AddNewColumns(type);
                 if (string.IsNullOrEmpty(add))
                 {
-                    Message($"Nenhuma alteração feita em {type.Name}");
+                    if (Debug) Message($"Nenhuma alteração feita em {type.Name}");
                     return true;
                 }
-                else
+                else if (Debug)
                 {
                     Message($"Campos adicionais encontrados: {string.Join(",", CamposAdicionados.ToArray())}");
                 }
@@ -345,7 +359,6 @@ namespace Yordi.EntityMultiSQL
                     // Mas MySQL retorna 0 :(
                     _ = await cmm.ExecuteNonQueryAsync();
                     Message($"Tabela {type.Name} alterada");
-
                 }
 
             }
@@ -369,7 +382,7 @@ namespace Yordi.EntityMultiSQL
                     DbCommand cmm = conexaoSql.CreateCommand();
                     int cont = 0;
                     StringBuilder sql = new StringBuilder("SELECT ");
-                    if (TipoDB == TipoDB.MySQL)
+                    if (_bd.TipoDB == TipoDB.MySQL)
                     {
                         List<Chave> chaves = new List<Chave>();
                         chaves.Add(new Chave()
