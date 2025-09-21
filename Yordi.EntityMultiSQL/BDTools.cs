@@ -12,8 +12,8 @@ namespace Yordi.EntityMultiSQL
     public class BDTools
     {
         private readonly IBDConexao _bd;
-
-        public BDTools(IBDConexao bd) { _bd = bd; }
+        private static IBDConexao staticBd;
+        public BDTools(IBDConexao bd) { _bd = bd; staticBd = bd; }
         public static BindingFlags Flags => BindingFlags.Public | BindingFlags.Instance;
 
         public static List<ColumnTable> Campos(object obj)
@@ -175,7 +175,11 @@ namespace Yordi.EntityMultiSQL
                     param.DbType = DbType.Int32;
                     break;
                 case Tipo.GUID:
-                    param.DbType = DbType.Guid;
+                    // Para SQLite armazenar em BLOB (16 bytes). Para outros manter GUID nativo.
+                    if (staticBd != null && staticBd.TipoDB == TipoDB.SQLite)
+                        param.DbType = DbType.Binary;
+                    else
+                        param.DbType = DbType.Guid;
                     break;
                 case Tipo.HORA:
                     param.DbType = DbType.Time;
@@ -189,16 +193,44 @@ namespace Yordi.EntityMultiSQL
             }
 
             object valor = info.Valor ?? DBNull.Value;
+
+            // Normalização específica para GUID
+            if (info.Tipo == Tipo.GUID && valor != DBNull.Value)
+            {
+                if (staticBd != null && staticBd.TipoDB == TipoDB.SQLite)
+                {
+                    // Garantir byte[16]
+                    if (valor is Guid g)
+                        valor = g.ToByteArray();
+                    else if (valor is string s && Guid.TryParse(s, out var gParsed))
+                        valor = gParsed.ToByteArray();
+                    else if (valor is byte[] b)
+                    {
+                        if (b.Length != 16)
+                            throw new InvalidCastException($"GUID em formato inválido (tamanho {b.Length})");
+                        // mantém
+                    }
+                }
+                else
+                {
+                    // Outros bancos: garantir Guid
+                    if (valor is string s && Guid.TryParse(s, out var gParsed))
+                        valor = gParsed;
+                    else if (valor is byte[] b && b.Length == 16)
+                        valor = new Guid(b);
+                }
+            }
+
             switch (info.Operador)
             {
                 case Operador.COMECAcom:
-                    param.Value = $"{valor}%";
+                    param.Value = valor == DBNull.Value ? valor : $"{valor}%";
                     break;
                 case Operador.CONTÉM:
-                    param.Value = $"%{valor}%";
+                    param.Value = valor == DBNull.Value ? valor : $"%{valor}%";
                     break;
                 case Operador.TERMINAcom:
-                    param.Value = $"%{valor}";
+                    param.Value = valor == DBNull.Value ? valor : $"%{valor}";
                     break;
                 default:
                     param.Value = valor;

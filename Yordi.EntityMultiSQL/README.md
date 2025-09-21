@@ -21,6 +21,7 @@ Para instalar o pacote, adicione a seguinte referência ao seu projeto:
 <pre>dotnet add package Yordi.EntityMultiSQL</pre>
 
 ## Evolução
+. 1.1.2 - Correção de bug na criação de tabelas SQLite com campos do tipo Guid. Agora trata como BLOB.
 . 1.1.1 - Correção de mensagem de log para inclusão de registros com o atributo Verbose.
 . 1.1.0 - Acréscimo de atributo Verbose, definido em configuração (DBConfig), para descrever em log a maioria dos CRUD (exceto R)
 . 1.0.3 - Mudança de biblioteca de comunicação com SQLite. Voltamos para System.Data.SLite.

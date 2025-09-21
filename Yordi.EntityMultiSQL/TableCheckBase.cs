@@ -110,9 +110,19 @@ namespace Yordi.EntityMultiSQL
                         s.Append("DEFAULT 0 ");
                     break;
                 case Tipo.GUID:
-                    s.Append("VARCHAR(36) ");
-                    if (coluna.ValorPadrao != null)
-                        s.Append($"DEFAULT {coluna.ValorPadrao} ");
+                    // Para SQLite armazenar em BLOB (16 bytes). Para outros manter GUID nativo.
+                    if (TipoDB.SQLite.Equals(_bd.DBConfig.TipoDB))
+                    {
+                        s.Append("BLOB ");
+                        if (coluna.ValorPadrao != null)
+                            s.Append($"DEFAULT X'{coluna.ValorPadrao}' ");
+                    }
+                    else
+                    {
+                        s.Append("VARCHAR(36) ");
+                        if (coluna.ValorPadrao != null)
+                            s.Append($"DEFAULT {coluna.ValorPadrao} ");
+                    }
                     break;
                 case Tipo.HORA:
                     if (_bd.TipoDB == TipoDB.MySQL)

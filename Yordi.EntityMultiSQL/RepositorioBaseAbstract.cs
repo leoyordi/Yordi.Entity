@@ -69,6 +69,17 @@ namespace Yordi.EntityMultiSQL
                             Type t = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
                             if (t.IsEnum && !isNull && c != null)
                                 prop.SetValue(obj, Enum.ToObject(t, c), null);
+                            else if (t == typeof(Guid) && c != null)
+                            {
+                                if (c is Guid g)
+                                    prop.SetValue(obj, g, null);
+                                else if (c is string s && Guid.TryParse(s, out Guid g2))
+                                    prop.SetValue(obj, g2, null);
+                                else if (c is byte[] b && b.Length == 16)
+                                    prop.SetValue(obj, new Guid(b), null);
+                                else if (!isNull)
+                                    throw new InvalidCastException($"Impossível converter {c.GetType().Name} para GUID");
+                            }
                             else
                             {
                                 object? safeValue = isNull ? null : Convert.ChangeType(c, t);
@@ -201,7 +212,9 @@ namespace Yordi.EntityMultiSQL
             //INSERT INTO TABLENAME (...)
             foreach (ColumnTable col in colunas)
             {
-                if (BDTools.CampoEditavel(col, _bd.AllowCurrentTimeStamp)) continue;
+                // CORREÇÃO: incluir apenas campos editáveis
+                if (!BDTools.CampoEditavel(col, _bd.AllowCurrentTimeStamp)) continue;
+                //if (BDTools.CampoEditavel(col, _bd.AllowCurrentTimeStamp)) continue;
                 if (col.IsAutoIncrement && col.Tipo != Tipo.GUID) continue;
                 if (cont > 0)
                     campos.Append(", ");
@@ -466,7 +479,11 @@ namespace Yordi.EntityMultiSQL
                             NewGuid.TipoGuid = TipoGuid.MSSQL;
                         else
                             NewGuid.TipoGuid = TipoGuid.MySQL;
-                        p.SetValue(obj, NewGuid.NewSequentialGuid());
+                        var newGuid = NewGuid.NewSequentialGuid();
+                        if (p.PropertyType == typeof(string))
+                            p.SetValue(obj, newGuid.ToString());
+                        else
+                            p.SetValue(obj, newGuid);
                     }
                     else if (tipo == Tipo.INT)
                     {
