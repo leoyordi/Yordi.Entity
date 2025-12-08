@@ -252,7 +252,6 @@ namespace Yordi.EntityMultiSQL
                 if (Debug)
                     Message($"Tabela {type.Name} existe");
                 return await AlteraTabela(type);
-                //return true;
             }
             else if (!tabelaExiste)
                 if (Debug) Message($"Tabela {type.Name} NÃO existe");
@@ -276,12 +275,6 @@ namespace Yordi.EntityMultiSQL
                     }
                     sql = CreateTable(type);
                     cmm.CommandText = sql;
-                    /*
-                     * For UPDATE, INSERT, and DELETE statements, the return value is the number of rows affected 
-                     * by the command. 
-                     * For all other types of statements, the return value is -1.
-                     * Mas MySQL retorna 0 :(
-                     */
                     resultado = await cmm.ExecuteNonQueryAsync();
 
                     tabelaExiste = await TabelaExiste(type);
@@ -304,6 +297,8 @@ namespace Yordi.EntityMultiSQL
                                 sa = await cmm.ExecuteNonQueryAsync();
                             }
                         }
+
+                        await GerenciarIndices(type, cmm);
                     }
                 }
             }
@@ -335,30 +330,31 @@ namespace Yordi.EntityMultiSQL
                 if (string.IsNullOrEmpty(add))
                 {
                     if (Debug) Message($"Nenhuma alteração feita em {type.Name}");
-                    return true;
                 }
                 else if (Debug)
                 {
                     Message($"Campos adicionais encontrados: {string.Join(",", CamposAdicionados.ToArray())}");
                 }
+
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
                     DbCommand cmm = conexaoSql.CreateCommand();
                     cmm.Connection = conexaoSql;
-                    if (TipoDB == TipoDB.MySQL)
-                        sql.Append("START TRANSACTION;");
-                    else
-                        sql.Append("BEGIN TRANSACTION;");
-                    sql.Append(add);
-                    sql.Append("COMMIT;");
-                    cmm.CommandText = sql.ToString();
 
-                    //For UPDATE, INSERT, and DELETE statements, the return value is the number of rows affected 
-                    // by the command. 
-                    // For all other types of statements, the return value is -1.
-                    // Mas MySQL retorna 0 :(
-                    _ = await cmm.ExecuteNonQueryAsync();
-                    Message($"Tabela {type.Name} alterada");
+                    if (!string.IsNullOrEmpty(add))
+                    {
+                        if (TipoDB == TipoDB.MySQL)
+                            sql.Append("START TRANSACTION;");
+                        else
+                            sql.Append("BEGIN TRANSACTION;");
+                        sql.Append(add);
+                        sql.Append("COMMIT;");
+                        cmm.CommandText = sql.ToString();
+                        _ = await cmm.ExecuteNonQueryAsync();
+                        Message($"Tabela {type.Name} alterada");
+                    }
+
+                    await GerenciarIndices(type, cmm);
                 }
 
             }
@@ -479,6 +475,366 @@ namespace Yordi.EntityMultiSQL
             return null;
         }
 
+
+        #endregion
+
+        #region Indexes
+
+        private async Task GerenciarIndices(Type type, DbCommand cmm)
+        {
+            if (!typeof(IPOCOIndexes).IsAssignableFrom(type))
+                return;
+
+            try
+            {
+                object? obj = Activator.CreateInstance(type);
+                if (obj == null || obj is not IPOCOIndexes pocoIndexes)
+                    return;
+
+                var indicesDesejados = pocoIndexes.GetIndexes();
+                if (indicesDesejados == null || !indicesDesejados.Any())
+                    return;
+
+                if (Debug) Message($"Verificando índices para tabela {type.Name}");
+
+                var indicesInfo = ConstruirIndicesInfo(type, indicesDesejados);
+                var indicesExistentes = await ListarIndicesExistentes(type, cmm);
+
+                var indicesParaCriar = ObterIndicesParaCriar(indicesInfo, indicesExistentes);
+                var indicesParaRemover = ObterIndicesParaRemover(type, indicesInfo, indicesExistentes);
+
+                foreach (var indexName in indicesParaRemover)
+                {
+                    string dropIndexSql = GerarScriptRemocaoIndice(type, indexName);
+                    if (!string.IsNullOrEmpty(dropIndexSql))
+                    {
+                        cmm.CommandText = dropIndexSql;
+                        await cmm.ExecuteNonQueryAsync();
+                        if (Debug) Message($"Índice {indexName} removido da tabela {type.Name}");
+                    }
+                }
+
+                foreach (var indexInfo in indicesParaCriar)
+                {
+                    string createIndexSql = GerarScriptCriacaoIndice(type, indexInfo);
+                    if (!string.IsNullOrEmpty(createIndexSql))
+                    {
+                        cmm.CommandText = createIndexSql;
+                        await cmm.ExecuteNonQueryAsync();
+                        if (Debug) Message($"Índice {indexInfo.IndexName} criado na tabela {type.Name}");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                e.Data.Add("Tabela", type.Name);
+                e.Data.Add("Operacao", "GerenciarIndices");
+                Error(e);
+            }
+        }
+
+        private Dictionary<string, IPOCOIndexes.IndexInfo> ConstruirIndicesInfo(Type type, IEnumerable<Chave> chaves)
+        {
+            var indicesAgrupados = new Dictionary<string, IPOCOIndexes.IndexInfo>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var chave in chaves)
+            {
+                string indexName = !string.IsNullOrEmpty(chave.Parametro) ? chave.Parametro : $"IX_{type.Name}_{chave.Campo}";
+                
+                if (!indicesAgrupados.ContainsKey(indexName))
+                {
+                    indicesAgrupados[indexName] = new IPOCOIndexes.IndexInfo
+                    {
+                        IndexName = indexName,
+                        Columns = new List<string>(),
+                        IsUnique = false,
+                        Chaves = Enumerable.Empty<Chave>()
+                    };
+                }
+
+                if (!string.IsNullOrEmpty(chave.Campo) && !indicesAgrupados[indexName].Columns.Contains(chave.Campo, StringComparer.OrdinalIgnoreCase))
+                {
+                    indicesAgrupados[indexName].Columns.Add(chave.Campo);
+                }
+            }
+
+            foreach (var indexName in indicesAgrupados.Keys.ToList())
+            {
+                var chavesDoIndice = chaves.Where(c => 
+                {
+                    string cName = !string.IsNullOrEmpty(c.Parametro) ? c.Parametro : $"IX_{type.Name}_{c.Campo}";
+                    return cName.Equals(indexName, StringComparison.OrdinalIgnoreCase);
+                }).ToList();
+
+                var colunas = chavesDoIndice.Where(c => !string.IsNullOrEmpty(c.Campo))
+                                           .Select(c => c.Campo!)
+                                           .Distinct(StringComparer.OrdinalIgnoreCase)
+                                           .ToList();
+
+                var chavesWhere = chavesDoIndice.Where(c => string.IsNullOrEmpty(c.Campo) && c.Valor != null).ToList();
+
+                indicesAgrupados[indexName] = new IPOCOIndexes.IndexInfo
+                {
+                    IndexName = indexName,
+                    Columns = colunas,
+                    IsUnique = false,
+                    Chaves = chavesWhere
+                };
+            }
+
+            return indicesAgrupados;
+        }
+
+        private async Task<Dictionary<string, IPOCOIndexes.IndexInfo>> ListarIndicesExistentes(Type type, DbCommand cmm)
+        {
+            string tableName = type.Name;
+            var indices = new Dictionary<string, IPOCOIndexes.IndexInfo>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                StringBuilder sql = new StringBuilder();
+
+                if (_bd.TipoDB == TipoDB.MySQL)
+                {
+                    sql.Append("SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE ");
+                    sql.Append("FROM INFORMATION_SCHEMA.STATISTICS ");
+                    sql.Append("WHERE TABLE_SCHEMA = @schema AND TABLE_NAME = @table ");
+                    sql.Append("AND INDEX_NAME != 'PRIMARY' ");
+                    sql.Append("ORDER BY INDEX_NAME, SEQ_IN_INDEX");
+
+                    cmm.Parameters.Clear();
+                    var schemaParam = cmm.CreateParameter();
+                    schemaParam.ParameterName = "@schema";
+                    schemaParam.Value = cmm.Connection?.Database ?? string.Empty;
+                    cmm.Parameters.Add(schemaParam);
+
+                    var tableParam = cmm.CreateParameter();
+                    tableParam.ParameterName = "@table";
+                    tableParam.Value = tableName;
+                    cmm.Parameters.Add(tableParam);
+                }
+                else if (_bd.TipoDB == TipoDB.SQLite)
+                {
+                    sql.Append($"SELECT name AS INDEX_NAME FROM pragma_index_list('{tableName}') WHERE origin = 'c'");
+                }
+                else
+                {
+                    return indices;
+                }
+
+                cmm.CommandText = sql.ToString();
+
+                using (DbDataReader reader = await cmm.ExecuteReaderAsync())
+                {
+                    if (_bd.TipoDB == TipoDB.MySQL)
+                    {
+                        while (reader.Read())
+                        {
+                            string indexName = reader["INDEX_NAME"].ToString() ?? string.Empty;
+                            string columnName = reader["COLUMN_NAME"].ToString() ?? string.Empty;
+                            bool isUnique = reader["NON_UNIQUE"].ToString() == "0";
+
+                            if (!indices.ContainsKey(indexName))
+                            {
+                                indices[indexName] = new IPOCOIndexes.IndexInfo
+                                {
+                                    IndexName = indexName,
+                                    IsUnique = isUnique,
+                                    Columns = new List<string>(),
+                                    Chaves = Enumerable.Empty<Chave>()
+                                };
+                            }
+                            indices[indexName].Columns.Add(columnName);
+                        }
+                    }
+                    else if (_bd.TipoDB == TipoDB.SQLite)
+                    {
+                        while (reader.Read())
+                        {
+                            string indexName = reader["INDEX_NAME"].ToString() ?? string.Empty;
+                            if (!string.IsNullOrEmpty(indexName))
+                            {
+                                indices[indexName] = new IPOCOIndexes.IndexInfo
+                                {
+                                    IndexName = indexName,
+                                    Columns = new List<string>(),
+                                    Chaves = Enumerable.Empty<Chave>()
+                                };
+                            }
+                        }
+                        reader.Close();
+
+                        foreach (var indexName in indices.Keys.ToList())
+                        {
+                            cmm.CommandText = $"SELECT name AS COLUMN_NAME FROM pragma_index_info('{indexName}')";
+                            using (DbDataReader colReader = await cmm.ExecuteReaderAsync())
+                            {
+                                while (colReader.Read())
+                                {
+                                    string columnName = colReader["COLUMN_NAME"].ToString() ?? string.Empty;
+                                    if (!string.IsNullOrEmpty(columnName))
+                                        indices[indexName].Columns.Add(columnName);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                e.Data.Add("Tabela", tableName);
+                e.Data.Add("Operacao", "ListarIndicesExistentes");
+                Error(e);
+            }
+
+            return indices;
+        }
+
+        private List<IPOCOIndexes.IndexInfo> ObterIndicesParaCriar(Dictionary<string, IPOCOIndexes.IndexInfo> indicesDesejados, Dictionary<string, IPOCOIndexes.IndexInfo> indicesExistentes)
+        {
+            var indicesParaCriar = new List<IPOCOIndexes.IndexInfo>();
+
+            foreach (var indexInfo in indicesDesejados.Values)
+            {
+                bool deveCriar = false;
+
+                if (!indicesExistentes.ContainsKey(indexInfo.IndexName))
+                {
+                    deveCriar = true;
+                }
+                else
+                {
+                    var existente = indicesExistentes[indexInfo.IndexName];
+                    bool colunasDiferentes = !indexInfo.Columns.SequenceEqual(existente.Columns, StringComparer.OrdinalIgnoreCase);
+
+                    if (colunasDiferentes)
+                    {
+                        deveCriar = true;
+                    }
+                }
+
+                if (deveCriar)
+                {
+                    indicesParaCriar.Add(indexInfo);
+                }
+            }
+
+            return indicesParaCriar;
+        }
+
+        private List<string> ObterIndicesParaRemover(Type type, Dictionary<string, IPOCOIndexes.IndexInfo> indicesDesejados, Dictionary<string, IPOCOIndexes.IndexInfo> indicesExistentes)
+        {
+            var indicesParaRemover = new List<string>();
+
+            foreach (var indexName in indicesExistentes.Keys)
+            {
+                if (indexName.StartsWith($"IX_{type.Name}_", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!indicesDesejados.ContainsKey(indexName))
+                    {
+                        indicesParaRemover.Add(indexName);
+                    }
+                    else
+                    {
+                        var existente = indicesExistentes[indexName];
+                        var desejado = indicesDesejados[indexName];
+
+                        bool colunasDiferentes = !desejado.Columns.SequenceEqual(existente.Columns, StringComparer.OrdinalIgnoreCase);
+
+                        if (colunasDiferentes)
+                        {
+                            indicesParaRemover.Add(indexName);
+                        }
+                    }
+                }
+            }
+
+            return indicesParaRemover;
+        }
+
+        private string GerarScriptCriacaoIndice(Type type, IPOCOIndexes.IndexInfo indexInfo)
+        {
+            if (indexInfo.Columns == null || !indexInfo.Columns.Any())
+                return string.Empty;
+
+            string tableName = type.Name;
+            StringBuilder sql = new StringBuilder();
+
+            if (_bd.TipoDB == TipoDB.MySQL)
+            {
+                sql.Append("CREATE ");
+                if (indexInfo.IsUnique)
+                    sql.Append("UNIQUE ");
+                sql.Append("INDEX ");
+                sql.Append($"{_bd.DBConfig.OpenName}{indexInfo.IndexName}{_bd.DBConfig.CloseName} ");
+                sql.Append($"ON {_bd.DBConfig.OpenName}{tableName}{_bd.DBConfig.CloseName} (");
+                sql.Append(string.Join(", ", indexInfo.Columns.Select(c => $"{_bd.DBConfig.OpenName}{c}{_bd.DBConfig.CloseName}")));
+                sql.Append(")");
+
+                if (indexInfo.Chaves != null && indexInfo.Chaves.Any())
+                {
+                    sql.Append(" WHERE ");
+                    int cont = 0;
+                    foreach (var chave in indexInfo.Chaves)
+                    {
+                        if (cont > 0)
+                            sql.Append(" AND ");
+                        sql.Append(_bdTools.WhereExpression(chave));
+                        cont++;
+                    }
+                }
+
+                sql.Append(";");
+            }
+            else if (_bd.TipoDB == TipoDB.SQLite)
+            {
+                sql.Append("CREATE ");
+                if (indexInfo.IsUnique)
+                    sql.Append("UNIQUE ");
+                sql.Append("INDEX IF NOT EXISTS ");
+                sql.Append($"{_bd.DBConfig.OpenName}{indexInfo.IndexName}{_bd.DBConfig.CloseName} ");
+                sql.Append($"ON {_bd.DBConfig.OpenName}{tableName}{_bd.DBConfig.CloseName} (");
+                sql.Append(string.Join(", ", indexInfo.Columns.Select(c => $"{_bd.DBConfig.OpenName}{c}{_bd.DBConfig.CloseName}")));
+                sql.Append(")");
+
+                if (indexInfo.Chaves != null && indexInfo.Chaves.Any())
+                {
+                    sql.Append(" WHERE ");
+                    int cont = 0;
+                    foreach (var chave in indexInfo.Chaves)
+                    {
+                        if (cont > 0)
+                            sql.Append(" AND ");
+                        sql.Append(_bdTools.WhereExpression(chave));
+                        cont++;
+                    }
+                }
+
+                sql.Append(";");
+            }
+
+            return sql.ToString();
+        }
+
+        private string GerarScriptRemocaoIndice(Type type, string indexName)
+        {
+            if (string.IsNullOrEmpty(indexName))
+                return string.Empty;
+
+            StringBuilder sql = new StringBuilder();
+
+            if (_bd.TipoDB == TipoDB.MySQL)
+            {
+                sql.Append($"DROP INDEX {_bd.DBConfig.OpenName}{indexName}{_bd.DBConfig.CloseName} ");
+                sql.Append($"ON {_bd.DBConfig.OpenName}{type.Name}{_bd.DBConfig.CloseName};");
+            }
+            else if (_bd.TipoDB == TipoDB.SQLite)
+            {
+                sql.Append($"DROP INDEX IF EXISTS {_bd.DBConfig.OpenName}{indexName}{_bd.DBConfig.CloseName};");
+            }
+
+            return sql.ToString();
+        }
 
         #endregion
     }
