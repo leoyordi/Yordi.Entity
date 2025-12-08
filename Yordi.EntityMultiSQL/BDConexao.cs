@@ -114,11 +114,9 @@ namespace Yordi.EntityMultiSQL
             {
                 using var comando = conexao.CreateCommand();
                 comando.CommandText = "SELECT VERSION()";
-                var versao = await comando.ExecuteScalarAsync();
-                if (versao != null)
-                {
+                var versao = (await comando.ExecuteScalarAsync())?.ToString();
+                if (!string.IsNullOrEmpty(versao))
                     ServerVersion = Conversores.ToVersion(versao.ToString());
-                }
             }
             else
             {

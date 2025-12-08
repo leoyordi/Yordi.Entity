@@ -8,17 +8,22 @@
 	<Authors>Leopoldo Yordi;leoyordi</Authors>
 	<GeneratePackageOnBuild>False</GeneratePackageOnBuild>
 	<Description>
-		Framework para criar instruções SQL para SQLite, MySQL e MSSQL. CRUD, cria tabelas e campos com base nos objetos POCO.
+		Framework para criar instruções SQL para SQLite, MySQL e MSSQL. CRUD, cria tabelas e campos com base nos objetos POCO. Gerenciamento automático de índices incluindo índices parciais com cláusula WHERE.
 	</Description>
-	<PackageTags>Yordi;Tools;Ferramentas; Entity;MySQL;SQLite</PackageTags>
+	<PackageTags>Yordi;Tools;Ferramentas;Entity;MySQL;SQLite;Index;Partial Index;Database</PackageTags>
 	<PackageId>Yordi.EntityMultiSQL</PackageId>
-	<Version>1.1.3</Version>
+	<Version>1.1.4</Version>
 	<Company>Yordi Sistemas Inteligentes</Company>
 	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
 	<PackageReadmeFile>README.md</PackageReadmeFile>
+	<PackageReleaseNotes>
+		v1.1.4: Atualização de dependências - Classe Chave movida para Yordi.Tools v1.0.14. IMPORTANTE: Versão 1.1.3 está DEPRECATED.
+		v1.1.3: [DEPRECATED] Não utilizar - problemas de dependência.
+	</PackageReleaseNotes>
   </PropertyGroup>
 	<ItemGroup>
 		<None Include="README.md" Pack="true" PackagePath="" />
+		<None Include="INDEX_MANAGEMENT_DOCUMENTATION.md" Pack="true" PackagePath="" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -27,6 +32,6 @@
 	  <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
 	  <PackageReference Include="SQLitePCLRaw.core" Version="2.1.10" />
 	  <PackageReference Include="System.Data.SQLite" Version="2.0.2" />
-	  <PackageReference Include="Yordi.Tools" Version="1.0.12" />
+	  <PackageReference Include="Yordi.Tools" Version="1.0.14" />
   </ItemGroup>
 </Project>

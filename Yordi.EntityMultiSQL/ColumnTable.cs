@@ -1,3 +1,5 @@
+using Yordi.Tools;
+
 namespace Yordi.EntityMultiSQL
 {
     /// <summary>

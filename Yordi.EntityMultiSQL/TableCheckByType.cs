@@ -497,8 +497,8 @@ namespace Yordi.EntityMultiSQL
 
                 if (Debug) Message($"Verificando índices para tabela {type.Name}");
 
-                var indicesInfo = ConstruirIndicesInfo(type, indicesDesejados);
                 var indicesExistentes = await ListarIndicesExistentes(type, cmm);
+                var indicesInfo = ConstruirIndicesInfo(type, indicesDesejados);
 
                 var indicesParaCriar = ObterIndicesParaCriar(indicesInfo, indicesExistentes);
                 var indicesParaRemover = ObterIndicesParaRemover(type, indicesInfo, indicesExistentes);
@@ -533,55 +533,18 @@ namespace Yordi.EntityMultiSQL
             }
         }
 
-        private Dictionary<string, IPOCOIndexes.IndexInfo> ConstruirIndicesInfo(Type type, IEnumerable<Chave> chaves)
+        private Dictionary<string, IPOCOIndexes.IndexInfo> ConstruirIndicesInfo(Type type, IEnumerable<IPOCOIndexes.IndexInfo> indexes)
         {
             var indicesAgrupados = new Dictionary<string, IPOCOIndexes.IndexInfo>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var chave in chaves)
+            foreach (var index in indexes)
             {
-                string indexName = !string.IsNullOrEmpty(chave.Parametro) ? chave.Parametro : $"IX_{type.Name}_{chave.Campo}";
+                if (string.IsNullOrEmpty(index.IndexName) || (index.Columns == null || !index.Columns.Any()))
+                    continue;
                 
-                if (!indicesAgrupados.ContainsKey(indexName))
-                {
-                    indicesAgrupados[indexName] = new IPOCOIndexes.IndexInfo
-                    {
-                        IndexName = indexName,
-                        Columns = new List<string>(),
-                        IsUnique = false,
-                        Chaves = Enumerable.Empty<Chave>()
-                    };
-                }
-
-                if (!string.IsNullOrEmpty(chave.Campo) && !indicesAgrupados[indexName].Columns.Contains(chave.Campo, StringComparer.OrdinalIgnoreCase))
-                {
-                    indicesAgrupados[indexName].Columns.Add(chave.Campo);
-                }
-            }
-
-            foreach (var indexName in indicesAgrupados.Keys.ToList())
-            {
-                var chavesDoIndice = chaves.Where(c => 
-                {
-                    string cName = !string.IsNullOrEmpty(c.Parametro) ? c.Parametro : $"IX_{type.Name}_{c.Campo}";
-                    return cName.Equals(indexName, StringComparison.OrdinalIgnoreCase);
-                }).ToList();
-
-                var colunas = chavesDoIndice.Where(c => !string.IsNullOrEmpty(c.Campo))
-                                           .Select(c => c.Campo!)
-                                           .Distinct(StringComparer.OrdinalIgnoreCase)
-                                           .ToList();
-
-                var chavesWhere = chavesDoIndice.Where(c => string.IsNullOrEmpty(c.Campo) && c.Valor != null).ToList();
-
-                indicesAgrupados[indexName] = new IPOCOIndexes.IndexInfo
-                {
-                    IndexName = indexName,
-                    Columns = colunas,
-                    IsUnique = false,
-                    Chaves = chavesWhere
-                };
-            }
-
+                if (!indicesAgrupados.ContainsKey(index.IndexName))
+                    indicesAgrupados[index.IndexName] = index;
+            }            
             return indicesAgrupados;
         }
 

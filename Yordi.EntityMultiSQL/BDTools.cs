@@ -12,7 +12,7 @@ namespace Yordi.EntityMultiSQL
     public class BDTools
     {
         private readonly IBDConexao _bd;
-        private static IBDConexao staticBd;
+        private static IBDConexao? staticBd;
         public BDTools(IBDConexao bd) { _bd = bd; staticBd = bd; }
         public static BindingFlags Flags => BindingFlags.Public | BindingFlags.Instance;
 
