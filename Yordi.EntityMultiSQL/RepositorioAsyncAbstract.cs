@@ -618,6 +618,7 @@ namespace Yordi.EntityMultiSQL
             }
             catch (Exception e)
             {
+                e.Data.Add("sql", sql);
                 Error(e);
             }
             return null;

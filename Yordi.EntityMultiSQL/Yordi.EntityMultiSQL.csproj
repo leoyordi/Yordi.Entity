@@ -12,7 +12,7 @@
 	</Description>
 	<PackageTags>Yordi;Tools;Ferramentas;Entity;MySQL;SQLite;Index;Partial Index;Database</PackageTags>
 	<PackageId>Yordi.EntityMultiSQL</PackageId>
-	<Version>1.1.4</Version>
+	  <Version>1.2.0-rc1</Version>
 	<Company>Yordi Sistemas Inteligentes</Company>
 	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
 	<PackageReadmeFile>README.md</PackageReadmeFile>
@@ -23,14 +23,13 @@
   </PropertyGroup>
 	<ItemGroup>
 		<None Include="README.md" Pack="true" PackagePath="" />
-		<None Include="INDEX_MANAGEMENT_DOCUMENTATION.md" Pack="true" PackagePath="" />
 	</ItemGroup>
 
 	<ItemGroup>
 	  <!--PackageReference Include="SQLite" Version="3.13.0" /-->
-	  <PackageReference Include="MySql.Data" Version="8.0.33" />
-	  <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
-	  <PackageReference Include="SQLitePCLRaw.core" Version="2.1.10" />
+	  <PackageReference Include="MySql.Data" Version="9.5.0" />
+	  <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
+	  <PackageReference Include="SQLitePCLRaw.core" Version="3.0.2" />
 	  <PackageReference Include="System.Data.SQLite" Version="2.0.2" />
 	  <PackageReference Include="Yordi.Tools" Version="1.0.14" />
   </ItemGroup>
