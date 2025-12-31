@@ -1,5 +1,17 @@
 # Yordi.EntityMultiSQL
 
+## Release Candidate (RC) — Atenção
+
+> Esta versão está sendo publicada como **Release Candidate (RC)** para testes e validação. Todos os pacotes e dependências foram atualizados para versões mais recentes, mas esta build **ainda não foi totalmente testada**. Pode conter quebras de compatibilidade, alterações de API ou problemas de integração.
+
+### Recomendações:
+- Use esta versão apenas para testes e validação em ambiente de desenvolvimento.
+- Para produção, prefira a versão estável `1.1.4`.
+- Reporte problemas na seção de Issues do repositório.
+
+### Instalação da versão RC (pré-lançamento):
+<pre>dotnet add package Yordi.EntityMultiSQL --version 1.2.0-rc2</pre>
+
 ## Descrição
 
 Yordi.EntityMultiSQL é um framework para criar instruções SQL para SQLite, MySQL e MSSQL. Ele permite realizar operações CRUD, criar tabelas e campos com base nos objetos POCO.
