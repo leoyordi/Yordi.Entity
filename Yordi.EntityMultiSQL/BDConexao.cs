@@ -84,11 +84,19 @@ namespace Yordi.EntityMultiSQL
                         conectado = true;
                         break;
                     }
-                    var task = conexao.OpenAsync();
-                    Task.WaitAll(task);
-                    if (task.IsFaulted)
-                        if (i < times)
-                            await Task.Delay(time * 1000);
+
+                    await conexao.OpenAsync();
+                    
+                    // Habilitar WAL mode para SQLite (melhor concorrência)
+                    if (_dbConfig.TipoDB == TipoDB.SQLite && conexao.State == ConnectionState.Open)
+                    {
+                        await HabilitarWALModeAsync(conexao);
+                    }
+                    
+                    if (ServerVersion == null)
+                        await DefinirVersaoServidorAsync(conexao);
+                    conectado = true;
+                    break;
                 }
                 catch (Exception) when (i < times)
                 {
@@ -108,6 +116,7 @@ namespace Yordi.EntityMultiSQL
             }
             return conexao;
         }
+
         private async Task DefinirVersaoServidorAsync(DbConnection conexao)
         {
             if (_dbConfig.TipoDB == TipoDB.MySQL && conexao.ServerVersion == null)
@@ -151,6 +160,10 @@ namespace Yordi.EntityMultiSQL
                     {
                         try
                         {
+                            // Adiciona BusyTimeout se não existir na connection string
+                            if (!conn.Contains("BusyTimeout", StringComparison.OrdinalIgnoreCase))
+                                conn = conn.TrimEnd(';') + ";BusyTimeout=30000";
+                            // Habilita WAL mode para melhor concorrência
                             _conexao = new SQLiteConnection(conn);
                         }
                         catch (Exception e) 
@@ -200,6 +213,86 @@ namespace Yordi.EntityMultiSQL
                 Error(ex);
             }
             return informacoesArquivo;
+        }
+
+        private async Task HabilitarWALModeAsync(DbConnection conexao)
+        {
+            try
+            {
+                using var cmd = conexao.CreateCommand();
+                cmd.CommandText = "PRAGMA journal_mode=WAL;";
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                // Log mas não falha - WAL é opcional
+                Error($"Não foi possível habilitar WAL mode: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Força o fechamento e reset da conexão SQLite para liberar locks
+        /// </summary>
+        public void ResetarConexao()
+        {
+            try
+            {
+                if (_conexao != null)
+                {
+                    if (_conexao.State != ConnectionState.Closed)
+                    {
+                        _conexao.Close();
+                    }
+                    _conexao.Dispose();
+                    _conexao = null;
+                }
+                _nova = true;
+                conectado = false;
+                
+                // Força coleta de garbage para liberar handles
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            catch (Exception ex)
+            {
+                Error(ex);
+            }
+        }
+
+        /// <summary>
+        /// Libera locks do SQLite usando PRAGMA e comandos internos
+        /// </summary>
+        public async Task<bool> LiberarLocksSQLiteAsync()
+        {
+            if (_dbConfig.TipoDB != TipoDB.SQLite)
+                return true;
+
+            try
+            {
+                // Fecha conexão atual se existir
+                ResetarConexao();
+
+                // Abre nova conexão limpa
+                using var conexao = new SQLiteConnection(_dbConfig.StringDeConexaoMontada());
+                await conexao.OpenAsync();
+
+                using var cmd = conexao.CreateCommand();
+                
+                // Força checkpoint do WAL (libera locks de escrita pendentes)
+                cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                await cmd.ExecuteNonQueryAsync();
+
+                // Limpa cache do schema
+                cmd.CommandText = "PRAGMA shrink_memory;";
+                await cmd.ExecuteNonQueryAsync();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Error(ex);
+                return false;
+            }
         }
     }
 }

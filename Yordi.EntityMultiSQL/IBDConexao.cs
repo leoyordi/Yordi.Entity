@@ -13,5 +13,9 @@ namespace Yordi.EntityMultiSQL
         IEnumerable<Type>? Tabelas { get; }
         Task<bool> IsServerConnectedAsync();
         Task<DbConnection> ObterConexaoAsync(int? timesToReconnect = null);
+        
+        // Novos métodos para gerenciamento de locks
+        void ResetarConexao();
+        Task<bool> LiberarLocksSQLiteAsync();
     }
 }
