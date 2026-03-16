@@ -3,7 +3,7 @@ using Yordi.Tools;
 
 namespace Yordi.EntityMultiSQL
 {
-    public interface IBDConexao
+    public interface IBDConexao : IDisposable, IAsyncDisposable
     {
         Version? ServerVersion { get; }
         TipoDB TipoDB { get; }
@@ -14,8 +14,19 @@ namespace Yordi.EntityMultiSQL
         Task<bool> IsServerConnectedAsync();
         Task<DbConnection> ObterConexaoAsync(int? timesToReconnect = null);
         
-        // Novos métodos para gerenciamento de locks
+        // Métodos para gerenciamento de locks
         void ResetarConexao();
         Task<bool> LiberarLocksSQLiteAsync();
+
+        /// <summary>
+        /// Adquire lock exclusivo para operações de escrita no SQLite.
+        /// Para outros bancos, retorna imediatamente.
+        /// </summary>
+        Task<bool> AguardarLockEscritaAsync(CancellationToken cancellationToken = default, int timeout = 30000);
+
+        /// <summary>
+        /// Libera o lock de escrita adquirido por <see cref="AguardarLockEscritaAsync"/>.
+        /// </summary>
+        void LiberarLockEscrita();
     }
 }

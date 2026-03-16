@@ -1,4 +1,4 @@
-using MySql.Data.MySqlClient;
+﻿using MySql.Data.MySqlClient;
 using System.Data;
 using System.Data.Common;
 using System.Data.SqlClient;
@@ -12,11 +12,25 @@ namespace Yordi.EntityMultiSQL
     public class BDConexao : EventBaseClass, IBDConexao
     {
         private readonly DBConfig _dbConfig;
-        private static DbConnection? _conexao;
-        private static bool _nova;
+
+        /// <summary>
+        /// Conexão reutilizável — usada APENAS para bancos não-SQLite (MySQL, etc.).
+        /// <para>Para SQLite, cada chamada a <see cref="ObterConexaoAsync"/> cria uma nova
+        /// <see cref="SQLiteConnection"/> — o pool nativo reaproveita a conexão nativa,
+        /// e criar o objeto .NET é barato.</para>
+        /// </summary>
+        private DbConnection? _conexao;
+        private bool _nova;
+
+        /// <summary>
+        /// Manager estático compartilhado: configuração WAL, semáforo de escrita e shutdown.
+        /// Estático porque todas as instâncias que acessam o mesmo arquivo .db
+        /// devem compartilhar o mesmo semáforo e estado WAL.
+        /// </summary>
+        private static SQLiteConnectionManager? _sqliteManager;
 
         public TipoDB TipoDB { get { return _dbConfig.TipoDB; } }
-        
+
         public Version? ServerVersion { get; private set; }
 
         private bool conectado;
@@ -44,7 +58,6 @@ namespace Yordi.EntityMultiSQL
         {
             _dbConfig = dbConfig;
             _nova = true;
-            //Batteries.Init();
             ListaTabelas();
         }
 
@@ -62,6 +75,36 @@ namespace Yordi.EntityMultiSQL
             }
             catch (Exception ex) { Error(ex); }
         }
+
+        #region Lock de escrita — delega para SQLiteConnectionManager
+
+        /// <summary>
+        /// Adquire lock exclusivo para operações de escrita no SQLite.
+        /// Para MySQL e outros bancos, retorna imediatamente com true.
+        /// </summary>
+        public async Task<bool> AguardarLockEscritaAsync(CancellationToken cancellationToken = default, int timeout = 30000)
+        {
+            if (_dbConfig.TipoDB != TipoDB.SQLite)
+                return true;
+
+            return await SQLiteConnectionManager.AguardarLockEscritaAsync(cancellationToken, timeout);
+        }
+
+        /// <summary>
+        /// Libera o lock de escrita do SQLite.
+        /// Seguro para chamar mesmo se o lock não foi adquirido.
+        /// </summary>
+        public void LiberarLockEscrita()
+        {
+            if (_dbConfig.TipoDB != TipoDB.SQLite)
+                return;
+
+            SQLiteConnectionManager.LiberarLockEscrita();
+        }
+
+        #endregion
+
+        #region Conexão
 
         public async Task<DbConnection> ObterConexaoAsync(int? timesToReconnect = null)
         {
@@ -86,13 +129,11 @@ namespace Yordi.EntityMultiSQL
                     }
 
                     await conexao.OpenAsync();
-                    
-                    // Habilitar WAL mode para SQLite (melhor concorr�ncia)
-                    if (_dbConfig.TipoDB == TipoDB.SQLite && conexao.State == ConnectionState.Open)
-                    {
-                        await HabilitarWALModeAsync(conexao);
-                    }
-                    
+
+                    // WAL mode gerenciado pelo manager (idempotente — no-op após primeiro sucesso)
+                    if (_sqliteManager != null && conexao.State == ConnectionState.Open)
+                        await _sqliteManager.ConfigurarConexaoAsync(conexao);
+
                     if (ServerVersion == null)
                         await DefinirVersaoServidorAsync(conexao);
                     conectado = true;
@@ -112,7 +153,7 @@ namespace Yordi.EntityMultiSQL
             if (conexao.State != ConnectionState.Open)
             {
                 conectado = false;
-                Error("Sem conex�o");
+                Error("Sem conexão");
             }
             return conexao;
         }
@@ -132,6 +173,7 @@ namespace Yordi.EntityMultiSQL
                 ServerVersion = Version.Parse(conexao.ServerVersion);
             }
         }
+
         public async Task<bool> IsServerConnectedAsync()
         {
             try
@@ -142,114 +184,105 @@ namespace Yordi.EntityMultiSQL
             return conectado;
         }
 
+        /// <summary>
+        /// Retorna uma conexão pronta para uso.
+        /// <para><b>SQLite:</b> sempre cria nova <see cref="SQLiteConnection"/>.
+        /// O pool nativo do SQLite reaproveita a conexão nativa — instanciar o objeto .NET é barato.
+        /// Cada operação/thread recebe sua própria conexão, eliminando <see cref="ObjectDisposedException"/>
+        /// causado por <c>using</c> que descartava a conexão compartilhada.</para>
+        /// <para><b>MySQL e outros:</b> reutiliza <see cref="_conexao"/> de instância se estiver aberta;
+        /// caso contrário, descarta e cria nova.</para>
+        /// </summary>
         private DbConnection ConnectionObject()
         {
-            if (_conexao != null && !_nova && _dbConfig.TipoDB != TipoDB.SQLite)
-                return _conexao;
+            // ── SQLite: sempre nova conexão ──────────────────────────────────
+            // WAL mode permite múltiplos readers concorrentes.
+            // Cada chamada recebe sua própria conexão → seguro com using/Dispose.
+            if (_dbConfig.TipoDB == TipoDB.SQLite)
+            {
+                try
+                {
+                    _sqliteManager ??= SQLiteConnectionManager.Criar(_dbConfig);
+                    return _sqliteManager.CriarConexao();
+                }
+                catch (Exception e)
+                {
+                    Error(e);
+                    throw;
+                }
+            }
+
+            // ── Outros bancos: reutiliza conexão de instância ────────────────
+            if (_conexao != null && !_nova)
+            {
+                try
+                {
+                    var state = _conexao.State;
+                    if (state == ConnectionState.Open || state == ConnectionState.Connecting)
+                        return _conexao;
+
+                    _conexao.Dispose();
+                    _conexao = null;
+                }
+                catch (ObjectDisposedException)
+                {
+                    _conexao = null;
+                }
+            }
 
             switch (_dbConfig.TipoDB)
             {
                 case TipoDB.MySQL:
                     _conexao = new MySqlConnection(_dbConfig.StringDeConexaoMontada());
                     break;
-                case TipoDB.SQLite:
                 default:
-                    CreateSQLiteDB();
-                    string? conn = _dbConfig.StringDeConexaoMontada();
-                    if (!string.IsNullOrEmpty(conn))
-                    {
-                        try
-                        {
-                            // Adiciona BusyTimeout se n�o existir na connection string
-                            if (!conn.Contains("BusyTimeout", StringComparison.OrdinalIgnoreCase))
-                                conn = conn.TrimEnd(';') + ";BusyTimeout=30000";
-                            // Habilita WAL mode para melhor concorr�ncia
-                            _conexao = new SQLiteConnection(conn);
-                        }
-                        catch (Exception e) 
-                        { 
-                            Error(e); 
-                            throw; 
-                        }
-                    }
-                    else
-                        throw new ArgumentNullException("ConnectionString", "Sem dados de conex�o de banco de dados");
-
-                    break;
+                    throw new NotSupportedException(
+                        $"TipoDB '{_dbConfig.TipoDB}' não possui implementação de conexão.");
             }
-            // _conexao.ConnectionString = _dbConfig.ConnectionString;
             _nova = false;
             return _conexao;
         }
-        private void CreateSQLiteDB()
-        {
-            if (string.IsNullOrEmpty(_dbConfig.Local) || string.IsNullOrEmpty(_dbConfig.Database))
-                throw new ArgumentNullException("Local ou Database", "Sem dados de conex�o de banco de dados");
-            string file = FileTools.Combina(_dbConfig.Local, _dbConfig.Database);
-            if (!FileTools.ArquivoExiste(file))
-            {
-                if (Verbose)
-                    Message($"Criando arquivo SQLite: {file}");
-                SQLiteConnection.CreateFile(file);
-            }
-        }
+
+        #endregion
+
+        #region SQLite — delegação para SQLiteConnectionManager
 
         public string? ObterInformacoesArquivoSQLite()
         {
-            string? informacoesArquivo = string.Empty;
             try
             {
-                using (var conexao = new SQLiteConnection(_dbConfig.StringDeConexaoMontada()))
-                {
-                    conexao.Open();
-                    using (var comando = new SQLiteCommand("PRAGMA schema_version", conexao))
-                    {
-                        informacoesArquivo = comando?.ExecuteScalar()?.ToString();
-                    }
-                }
+                return SQLiteConnectionManager.ObterInformacoesArquivo(
+                    _dbConfig.StringDeConexaoMontada());
             }
             catch (Exception ex)
             {
                 Error(ex);
-            }
-            return informacoesArquivo;
-        }
-
-        private async Task HabilitarWALModeAsync(DbConnection conexao)
-        {
-            try
-            {
-                using var cmd = conexao.CreateCommand();
-                cmd.CommandText = "PRAGMA journal_mode=WAL;";
-                await cmd.ExecuteNonQueryAsync();
-            }
-            catch (Exception ex)
-            {
-                // Log mas n�o falha - WAL � opcional
-                Error($"N�o foi poss�vel habilitar WAL mode: {ex.Message}");
+                return null;
             }
         }
 
-        /// <summary>
-        /// For�a o fechamento e reset da conex�o SQLite para liberar locks
-        /// </summary>
         public void ResetarConexao()
         {
             try
             {
                 if (_conexao != null)
                 {
-                    if (_conexao.State != ConnectionState.Closed)
+                    try
                     {
-                        _conexao.Close();
+                        if (_conexao.State != ConnectionState.Closed)
+                            _conexao.Close();
+                        _conexao.Dispose();
                     }
-                    _conexao.Dispose();
+                    catch (ObjectDisposedException) { }
                     _conexao = null;
                 }
                 _nova = true;
                 conectado = false;
-                
-                // For�a coleta de garbage para liberar handles
+
+                // Para SQLite, limpar pools libera conexões nativas em cache
+                if (_dbConfig.TipoDB == TipoDB.SQLite)
+                    SQLiteConnection.ClearAllPools();
+
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
             }
@@ -259,9 +292,6 @@ namespace Yordi.EntityMultiSQL
             }
         }
 
-        /// <summary>
-        /// Libera locks do SQLite usando PRAGMA e comandos internos
-        /// </summary>
         public async Task<bool> LiberarLocksSQLiteAsync()
         {
             if (_dbConfig.TipoDB != TipoDB.SQLite)
@@ -269,24 +299,9 @@ namespace Yordi.EntityMultiSQL
 
             try
             {
-                // Fecha conex�o atual se existir
                 ResetarConexao();
-
-                // Abre nova conex�o limpa
-                using var conexao = new SQLiteConnection(_dbConfig.StringDeConexaoMontada());
-                await conexao.OpenAsync();
-
-                using var cmd = conexao.CreateCommand();
-                
-                // For�a checkpoint do WAL (libera locks de escrita pendentes)
-                cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-                await cmd.ExecuteNonQueryAsync();
-
-                // Limpa cache do schema
-                cmd.CommandText = "PRAGMA shrink_memory;";
-                await cmd.ExecuteNonQueryAsync();
-
-                return true;
+                return await SQLiteConnectionManager.LiberarLocksAsync(
+                    _sqliteManager?.ConnectionString ?? _dbConfig.StringDeConexaoMontada());
             }
             catch (Exception ex)
             {
@@ -294,5 +309,70 @@ namespace Yordi.EntityMultiSQL
                 return false;
             }
         }
+
+        #endregion
+
+        #region IDisposable / IAsyncDisposable
+
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            if (_dbConfig.TipoDB == TipoDB.SQLite && _sqliteManager != null)
+            {
+                // SQLite não armazena _conexao — Encerrar cria conexão temporária para checkpoint
+                _sqliteManager.Encerrar(null);
+                _sqliteManager = null;
+            }
+            else if (_conexao != null)
+            {
+                try
+                {
+                    if (_conexao.State != ConnectionState.Closed)
+                        _conexao.Close();
+                    _conexao.Dispose();
+                }
+                catch (ObjectDisposedException) { }
+                _conexao = null;
+            }
+
+            _nova = true;
+            conectado = false;
+
+            GC.SuppressFinalize(this);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            if (_dbConfig.TipoDB == TipoDB.SQLite && _sqliteManager != null)
+            {
+                await _sqliteManager.EncerrarAsync(null);
+                _sqliteManager = null;
+            }
+            else if (_conexao != null)
+            {
+                try
+                {
+                    if (_conexao.State != ConnectionState.Closed)
+                        await _conexao.CloseAsync();
+                    await _conexao.DisposeAsync();
+                }
+                catch (ObjectDisposedException) { }
+                _conexao = null;
+            }
+
+            _nova = true;
+            conectado = false;
+
+            GC.SuppressFinalize(this);
+        }
+
+        #endregion
     }
 }

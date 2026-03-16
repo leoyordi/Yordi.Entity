@@ -53,61 +53,57 @@ namespace Yordi.EntityMultiSQL
         /// <returns></returns>
         public virtual async Task<T?> AtualizarOuIncluir(T obj)
         {
-            bool ok = false;
-            List<ColumnTable> colunas = BDTools.Campos(obj);
-            try
+            return await ExecuteFullWriteAsync(async () =>
             {
-                using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+                bool ok = false;
+                List<ColumnTable> colunas = BDTools.Campos(obj);
+                try
                 {
-                    using (var transaction = conexaoSql.BeginTransaction())
+                    using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                     {
-                        DataTable dt = await SelectTransaction(conexaoSql, colunas);
-                        if (dt == null || dt.Rows == null || dt.Rows.Count == 0) // insert
+                        using (var transaction = conexaoSql.BeginTransaction())
                         {
-                            (bool, List<ColumnTable>) insert = await InsertTransaction(conexaoSql, colunas);
-                            ok = insert.Item1;
-                            colunas = insert.Item2;
-                        }
-                        else if (dt.Rows.Count == 1) // update
-                            ok = await UpdateTransaction(conexaoSql, colunas);
-                        else // erro
-                        {
-                            var e = new Exception("Mais de um item encontrado para atualizar");
-                            StringBuilder sb = new StringBuilder();
-                            foreach (var c in colunas)
+                            DataTable dt = await SelectTransaction(conexaoSql, colunas);
+                            if (dt == null || dt.Rows == null || dt.Rows.Count == 0)
                             {
-                                sb.Append(c.Parametro ?? c.Campo);
-                                sb.Append('=');
-                                sb.Append(c.Valor?.ToString() ?? "NULL");
-                                sb.Append('|');
+                                (bool, List<ColumnTable>) insert = await InsertTransaction(conexaoSql, colunas);
+                                ok = insert.Item1;
+                                colunas = insert.Item2;
                             }
-                            e.Data.Add("Param", sb.ToString());
-                            Error(e);
+                            else if (dt.Rows.Count == 1)
+                                ok = await UpdateTransaction(conexaoSql, colunas);
+                            else
+                            {
+                                var e = new Exception("Mais de um item encontrado para atualizar");
+                                StringBuilder sb = new StringBuilder();
+                                foreach (var c in colunas)
+                                {
+                                    sb.Append(c.Parametro ?? c.Campo);
+                                    sb.Append('=');
+                                    sb.Append(c.Valor?.ToString() ?? "NULL");
+                                    sb.Append('|');
+                                }
+                                e.Data.Add("Param", sb.ToString());
+                                Error(e);
+                            }
+                            if (ok)
+                            {
+                                await transaction.CommitAsync();
+                                dt = await SelectTransaction(conexaoSql, colunas);
+                                if (dt?.Rows != null && dt.Rows.Count == 1)
+                                    return AtualizaObjetoOriginal(obj, dt.Rows[0]);
+                            }
+                            else
+                                await transaction.RollbackAsync();
                         }
-                        if (ok)
-                        {
-                            await transaction.CommitAsync();
-                            dt = await SelectTransaction(conexaoSql, colunas);
-                            if (dt?.Rows != null && dt.Rows.Count == 1)
-                                return AtualizaObjetoOriginal(obj, dt.Rows[0]);
-                        }
-                        else
-                            await transaction.RollbackAsync();
                     }
                 }
-            }
-            catch (Exception e) when (SQLiteRetryHelper.IsDatabaseLocked(e))
-            {
-                // Tenta liberar locks e repetir a operação
-                if (await TentarLiberarERepetirAsync())
-                    return await AtualizarOuIncluir(obj); // Recursão controlada
-                RegistraErro(e, string.Empty, colunas);
-            }
-            catch (Exception e)
-            {
-                RegistraErro(e, string.Empty, colunas);
-            }
-            return null;
+                catch (Exception e)
+                {
+                    RegistraErro(e, string.Empty, colunas);
+                }
+                return null;
+            });
         }
 
         protected async Task<DataTable> SelectTransaction(DbConnection conexaoSql, IEnumerable<ColumnTable> colunas)
@@ -182,47 +178,23 @@ namespace Yordi.EntityMultiSQL
                         coluna = c;
                         continue;
                     }
-
                     d = BDTools.AtualizaValor(c);
                     insertCmm.Parameters.Add(BDTools.CriaParameter(insertCmm, d));
                 }
-
-                // Usa retry helper para SQLite
-                if (_bd.TipoDB == TipoDB.SQLite)
+                try
                 {
-                    resultado = await ExecuteWithSQLiteRetryAsync(async () =>
+                    if (coluna != null)
                     {
-                        if (coluna != null)
-                        {
-                            var undefined = await insertCmm.ExecuteScalarAsync();
-                            if (int.TryParse(undefined?.ToString(), out int res))
-                            {
-                                coluna.Valor = res;
-                                return res;
-                            }
-                            return 0;
-                        }
-                        else
-                            return await insertCmm.ExecuteNonQueryAsync();
-                    }, sql, colunas);
+                        var undefined = await insertCmm.ExecuteScalarAsync();
+                        if (int.TryParse(undefined?.ToString(), out resultado))
+                            coluna.Valor = resultado;
+                    }
+                    else
+                        resultado = await insertCmm.ExecuteNonQueryAsync();
                 }
-                else
+                catch (Exception e)
                 {
-                    try
-                    {
-                        if (coluna != null)
-                        {
-                            var undefined = await insertCmm.ExecuteScalarAsync();
-                            if (int.TryParse(undefined?.ToString(), out resultado))
-                                coluna.Valor = resultado;
-                        }
-                        else
-                            resultado = await insertCmm.ExecuteNonQueryAsync();
-                    }
-                    catch (Exception e)
-                    {
-                        RegistraErro(e, sql, colunas);
-                    }
+                    RegistraErro(e, sql, colunas);
                 }
             }
 
@@ -235,7 +207,7 @@ namespace Yordi.EntityMultiSQL
             }
             return (resultado > 0, colunas);
         }
-
+        
         protected async Task<bool> UpdateTransaction(DbConnection conexaoSql, List<ColumnTable> colunas)
         {
             string sql;
@@ -263,43 +235,30 @@ namespace Yordi.EntityMultiSQL
             }
 
             int resultado = 0;
-            using (DbCommand updateCmm = conexaoSql.CreateCommand())
+            try
             {
-                updateCmm.CommandText = sql;
-                foreach (var c in colunas)
+                using (DbCommand updateCmm = conexaoSql.CreateCommand())
                 {
-                    if (c.OnlyInsert) continue;
-                    if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
-                    updateCmm.Parameters.Add(BDTools.CriaParameter(updateCmm, c));
-                }
-
-                // Usa retry helper para SQLite
-                if (_bd.TipoDB == TipoDB.SQLite)
-                {
-                    resultado = await ExecuteWithSQLiteRetryAsync(
-                        async () => await updateCmm.ExecuteNonQueryAsync(),
-                        sql, colunas);
-                }
-                else
-                {
-                    try
+                    updateCmm.CommandText = sql;
+                    foreach (var c in colunas)
                     {
-                        resultado = await updateCmm.ExecuteNonQueryAsync();
+                        if (c.OnlyInsert) continue;
+                        if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
+                        updateCmm.Parameters.Add(BDTools.CriaParameter(updateCmm, c));
                     }
-                    catch (Exception e)
-                    {
-                        RegistraErro(e, sql, colunas);
-                    }
+                    resultado = await updateCmm.ExecuteNonQueryAsync();
                 }
-
                 if (Verbose)
                     Message($"Update {resultado} registros na tabela {_tableName}");
             }
-
+            catch (Exception e)
+            {
+                RegistraErro(e, sql, colunas);
+            }
             Rows(resultado);
             return resultado > 0;
         }
-
+        
         /// <summary>
         /// Exclui o objeto informado com base no atributo AutoIncrement ou KEY
         /// </summary>
@@ -974,21 +933,24 @@ namespace Yordi.EntityMultiSQL
         /// <returns>Objeto com o novo código de autoincremento</returns>
         private async Task<T?> Insert(T obj)
         {
-            bool ok = false;
-            List<ColumnTable> colunas = BDTools.Campos(obj);
-            using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+            return await ExecuteFullWriteAsync(async () =>
             {
-                var insert = await InsertTransaction(conexaoSql, colunas);
-                ok = insert.Item1;
-                colunas = insert.Item2;
-                if (ok)
+                bool ok = false;
+                List<ColumnTable> colunas = BDTools.Campos(obj);
+                using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
-                    var dt = await SelectTransaction(conexaoSql, colunas);
-                    if (dt?.Rows != null && dt.Rows.Count == 1)
-                        return AtualizaObjetoOriginal(obj, dt.Rows[0]);
+                    var insert = await InsertTransaction(conexaoSql, colunas);
+                    ok = insert.Item1;
+                    colunas = insert.Item2;
+                    if (ok)
+                    {
+                        var dt = await SelectTransaction(conexaoSql, colunas);
+                        if (dt?.Rows != null && dt.Rows.Count == 1)
+                            return AtualizaObjetoOriginal(obj, dt.Rows[0]);
+                    }
                 }
-            }
-            return null;
+                return null;
+            });
         }
 
         /// <summary>
@@ -1074,120 +1036,97 @@ namespace Yordi.EntityMultiSQL
 
             return r;
         }
-
         private async Task<IEnumerable<T>> Inclusao(IEnumerable<T> lista, bool dispararEventoProgresso = false)
         {
-            CheckTableName();
-            T obj = lista.ElementAt(0);
-            List<ColumnTable> colunas = BDTools.Campos(obj);
-            string sql = InsertWithParameters(colunas, true);
-            int resultado = 0; int rowAffected = 0;
-            List<T> incluidos = new List<T>();
-            try
+            var resultado = await ExecuteFullWriteAsync(async () =>
             {
-                using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+                CheckTableName();
+                T obj = lista.ElementAt(0);
+                List<ColumnTable> colunas = BDTools.Campos(obj);
+                string sql = InsertWithParameters(colunas, true);
+                int res = 0; int rowAffected = 0;
+                List<T> incluidos = new List<T>();
+                try
                 {
-                    using (DbTransaction transaction = conexaoSql.BeginTransaction())
+                    using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                     {
-                        using (DbCommand cmm = conexaoSql.CreateCommand())
+                        using (DbTransaction transaction = conexaoSql.BeginTransaction())
                         {
-                            cmm.CommandText = sql;
-                            ColumnTable? d = null;
-
-                            foreach (var item in lista)
+                            using (DbCommand cmm = conexaoSql.CreateCommand())
                             {
-                                string? nomeAuto = String.Empty;
-                                try
+                                cmm.CommandText = sql;
+                                ColumnTable? d = null;
+
+                                foreach (var item in lista)
                                 {
-                                    cmm.Parameters.Clear();
-                                    colunas = BDTools.Campos(item);
-                                    d = null;
-                                    foreach (var c in colunas)
-                                    {
-                                        if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
-                                        if (c.IsAutoIncrement) continue;
-                                        d = BDTools.AtualizaValor(c);
-                                        cmm.Parameters.Add(BDTools.CriaParameter(cmm, d));
-                                    }
+                                    string? nomeAuto = String.Empty;
                                     try
                                     {
-                                        nomeAuto = colunas.FirstOrDefault(m => m.IsAutoIncrement)?.Campo;
-
-                                        // Usa retry helper para SQLite
-                                        if (_bd.TipoDB == TipoDB.SQLite)
+                                        cmm.Parameters.Clear();
+                                        colunas = BDTools.Campos(item);
+                                        d = null;
+                                        foreach (var c in colunas)
                                         {
-                                            resultado = await ExecuteWithSQLiteRetryAsync(async () =>
-                                            {
-                                                if (!string.IsNullOrEmpty(nomeAuto))
-                                                {
-                                                    var undefined = await cmm.ExecuteScalarAsync();
-                                                    if (int.TryParse(undefined?.ToString(), out int res) && res > 0)
-                                                    {
-                                                        PropertyInfo? propertyInfo = item.GetType().GetProperty(nomeAuto);
-                                                        if (propertyInfo != null)
-                                                            propertyInfo.SetValue(item, res);
-                                                        return res;
-                                                    }
-                                                    return 0;
-                                                }
-                                                else
-                                                    return await cmm.ExecuteNonQueryAsync();
-                                            }, sql, colunas);
+                                            if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
+                                            if (c.IsAutoIncrement) continue;
+                                            d = BDTools.AtualizaValor(c);
+                                            cmm.Parameters.Add(BDTools.CriaParameter(cmm, d));
                                         }
-                                        else
+                                        try
                                         {
+                                            nomeAuto = colunas.FirstOrDefault(m => m.IsAutoIncrement)?.Campo;
                                             if (!string.IsNullOrEmpty(nomeAuto))
                                             {
                                                 var undefined = await cmm.ExecuteScalarAsync();
-                                                if (int.TryParse(undefined?.ToString(), out resultado) && resultado > 0)
+                                                if (int.TryParse(undefined?.ToString(), out res) && res > 0)
                                                 {
                                                     PropertyInfo? propertyInfo = item.GetType().GetProperty(nomeAuto);
                                                     if (propertyInfo != null)
-                                                        propertyInfo.SetValue(item, resultado);
+                                                        propertyInfo.SetValue(item, res);
                                                 }
                                             }
                                             else
-                                                resultado = await cmm.ExecuteNonQueryAsync();
+                                                res = await cmm.ExecuteNonQueryAsync();
+
+                                            if (res > 0)
+                                            {
+                                                incluidos.Add(item);
+                                                rowAffected++;
+                                            }
+                                        }
+                                        catch (Exception e)
+                                        {
+                                            RegistraErro(e, sql, colunas);
                                         }
 
-                                        if (resultado > 0)
-                                        {
-                                            incluidos.Add(item);
-                                            rowAffected++;
-                                        }
+                                        if (dispararEventoProgresso)
+                                            Progresso(rowAffected);
                                     }
                                     catch (Exception e)
                                     {
                                         RegistraErro(e, sql, colunas);
                                     }
-
-                                    if (dispararEventoProgresso)
-                                        Progresso(rowAffected);
-                                }
-                                catch (Exception e)
-                                {
-                                    RegistraErro(e, sql, colunas);
                                 }
                             }
-                        }
 
-                        if (rowAffected == lista.Count())
-                            await transaction.CommitAsync();
-                        else
-                        {
-                            await transaction.RollbackAsync();
-                            incluidos.Clear();
+                            if (rowAffected == lista.Count())
+                                await transaction.CommitAsync();
+                            else
+                            {
+                                await transaction.RollbackAsync();
+                                incluidos.Clear();
+                            }
                         }
                     }
                 }
-            }
-            catch (Exception e)
-            {
-                RegistraErro(e, sql, colunas);
-            }
-            return incluidos.ToList();
+                catch (Exception e)
+                {
+                    RegistraErro(e, sql, colunas);
+                }
+                return incluidos.ToList();
+            });
+            return resultado ?? new List<T>();
         }
-
         protected void RegistraErro(Exception e, string sql, IEnumerable<ColumnTable>? colunas = null
             , [CallerFilePath] string path = "", [CallerMemberName] string member = "", [CallerLineNumber] int line = 0)
         {
@@ -1253,19 +1192,22 @@ namespace Yordi.EntityMultiSQL
 
         private async Task<T?> Update(T obj)
         {
-            bool ok = false;
-            List<ColumnTable> colunas = BDTools.Campos(obj);
-            using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+            return await ExecuteFullWriteAsync(async () =>
             {
-                ok = await UpdateTransaction(conexaoSql, colunas);
-                if (ok)
+                bool ok = false;
+                List<ColumnTable> colunas = BDTools.Campos(obj);
+                using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
-                    var dt = await SelectTransaction(conexaoSql, colunas);
-                    if (dt?.Rows != null && dt.Rows.Count == 1)
-                        return AtualizaObjetoOriginal(obj, dt.Rows[0]);
+                    ok = await UpdateTransaction(conexaoSql, colunas);
+                    if (ok)
+                    {
+                        var dt = await SelectTransaction(conexaoSql, colunas);
+                        if (dt?.Rows != null && dt.Rows.Count == 1)
+                            return AtualizaObjetoOriginal(obj, dt.Rows[0]);
+                    }
                 }
-            }
-            return null;
+                return null;
+            });
         }
 
         /// <summary>
@@ -1309,123 +1251,113 @@ namespace Yordi.EntityMultiSQL
             Message($"Alterados: {ret}");
             return ts;
         }
-
         private async Task<IEnumerable<T>?> Alteracao(IEnumerable<T> lista, bool dispararEventoProgresso = false)
         {
-            string sql;
-            var obj = lista.ElementAt(0);
-            string origem = ControleAlteracao.Origem ?? Environment.MachineName;
-            DateTime now = DateTime.UtcNow;
-            var l = lista.ToList();
-            if (obj is ICommonColumns)
+            return await ExecuteFullWriteAsync(async () =>
             {
-                if (!AllowCurrentTimeStamp)
-                    l.ForEach(m =>
-                    {
-                        ICommonColumns a = (ICommonColumns)m;
-                        a.Origem = origem;
-                        a.DataAlteracao = now;
-                        a.UsuarioAlteracao = ControleAlteracao.Usuario;
-                    });
-                else
-                    l.ForEach(m =>
-                    {
-                        ICommonColumns a = (ICommonColumns)m;
-                        a.Origem = origem;
-                        a.UsuarioAlteracao = ControleAlteracao.Usuario;
-                    });
-            }
-
-
-            List<ColumnTable> colunas = BDTools.Campos(obj);
-            if (colunas.Any(m => m.IsAutoIncrement && m.Tipo != Tipo.GUID))
-                sql = UpdateForAutoParameters(obj);
-            else if (colunas.Any(m => m.IsKey))
-                sql = UpdateWithKeyParameters(obj);
-            else
-            {
-                Error("Impossível atualizar, não há colunas de referência para a cláusula WHERE");
-                return null;
-            }
-
-            int resultado = 0; int rowAffected = 0;
-            List<T> atualizados = new List<T>();
-            try
-            {
-                using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+                string sql;
+                var obj = lista.ElementAt(0);
+                string origem = ControleAlteracao.Origem ?? Environment.MachineName;
+                DateTime now = DateTime.UtcNow;
+                var l = lista.ToList();
+                if (obj is ICommonColumns)
                 {
-                    using (DbTransaction transaction = conexaoSql.BeginTransaction())
-                    {
-                        using (DbCommand cmm = conexaoSql.CreateCommand())
+                    if (!AllowCurrentTimeStamp)
+                        l.ForEach(m =>
                         {
-                            cmm.CommandText = sql;
-                            ColumnTable? d = null;
+                            ICommonColumns a = (ICommonColumns)m;
+                            a.Origem = origem;
+                            a.DataAlteracao = now;
+                            a.UsuarioAlteracao = ControleAlteracao.Usuario;
+                        });
+                    else
+                        l.ForEach(m =>
+                        {
+                            ICommonColumns a = (ICommonColumns)m;
+                            a.Origem = origem;
+                            a.UsuarioAlteracao = ControleAlteracao.Usuario;
+                        });
+                }
 
-                            foreach (var item in l)
+                List<ColumnTable> colunas = BDTools.Campos(obj);
+                if (colunas.Any(m => m.IsAutoIncrement && m.Tipo != Tipo.GUID))
+                    sql = UpdateForAutoParameters(obj);
+                else if (colunas.Any(m => m.IsKey))
+                    sql = UpdateWithKeyParameters(obj);
+                else
+                {
+                    Error("Impossível atualizar, não há colunas de referência para a cláusula WHERE");
+                    return (IEnumerable<T>?)null;
+                }
+
+                int resultado = 0; int rowAffected = 0;
+                List<T> atualizados = new List<T>();
+                try
+                {
+                    using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+                    {
+                        using (DbTransaction transaction = conexaoSql.BeginTransaction())
+                        {
+                            using (DbCommand cmm = conexaoSql.CreateCommand())
                             {
-                                try
+                                cmm.CommandText = sql;
+                                ColumnTable? d = null;
+
+                                foreach (var item in l)
                                 {
-                                    cmm.Parameters.Clear();
-                                    colunas = BDTools.Campos(item);
-                                    d = null;
-                                    foreach (var c in colunas)
-                                    {
-                                        if (c.OnlyInsert) continue;
-                                        if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
-                                        d = BDTools.AtualizaValor(c);
-                                        cmm.Parameters.Add(BDTools.CriaParameter(cmm, d));
-                                    }
                                     try
                                     {
-                                        // Usa retry helper para SQLite
-                                        if (_bd.TipoDB == TipoDB.SQLite)
+                                        cmm.Parameters.Clear();
+                                        colunas = BDTools.Campos(item);
+                                        d = null;
+                                        foreach (var c in colunas)
                                         {
-                                            resultado = await ExecuteWithSQLiteRetryAsync(
-                                                async () => await cmm.ExecuteNonQueryAsync(),
-                                                sql, colunas);
+                                            if (c.OnlyInsert) continue;
+                                            if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
+                                            d = BDTools.AtualizaValor(c);
+                                            cmm.Parameters.Add(BDTools.CriaParameter(cmm, d));
                                         }
-                                        else
+                                        try
                                         {
                                             resultado = await cmm.ExecuteNonQueryAsync();
+                                            if (resultado > 0)
+                                            {
+                                                atualizados.Add(item);
+                                                rowAffected++;
+                                            }
+                                        }
+                                        catch (Exception e)
+                                        {
+                                            RegistraErro(e, sql, colunas);
                                         }
 
-                                        if (resultado > 0)
-                                        {
-                                            atualizados.Add(item);
-                                            rowAffected++;
-                                        }
+                                        if (dispararEventoProgresso)
+                                            Progresso(rowAffected);
                                     }
                                     catch (Exception e)
                                     {
                                         RegistraErro(e, sql, colunas);
                                     }
-
-                                    if (dispararEventoProgresso)
-                                        Progresso(rowAffected);
-                                }
-                                catch (Exception e)
-                                {
-                                    RegistraErro(e, sql, colunas);
                                 }
                             }
-                        }
-                        if (rowAffected == lista.Count())
-                            await transaction.CommitAsync();
-                        else
-                        {
-                            await transaction.RollbackAsync();
-                            atualizados.Clear();
+                            if (rowAffected == lista.Count())
+                                await transaction.CommitAsync();
+                            else
+                            {
+                                await transaction.RollbackAsync();
+                                atualizados.Clear();
+                            }
                         }
                     }
+                    if (Verbose)
+                        Message($"Atualizados: {atualizados.Count} de {lista.Count()} em {_tableName}");
                 }
-                if (Verbose)
-                    Message($"Atualizados: {atualizados.Count} de {lista.Count()} em {_tableName}");
-            }
-            catch (Exception e)
-            {
-                Error(e);
-            }
-            return atualizados.ToList();
+                catch (Exception e)
+                {
+                    Error(e);
+                }
+                return (IEnumerable<T>?)atualizados.ToList();
+            });
         }
 
 
@@ -1435,6 +1367,7 @@ namespace Yordi.EntityMultiSQL
         /// <param name="lista"></param>
         /// <param name="dispararEventoProgresso"></param>
         /// <returns></returns>
+
         public virtual async Task<IEnumerable<T>?> AtualizarOuIncluir(IEnumerable<T> lista, bool dispararEventoProgresso = false)
         {
             if (_bd.TipoDB == TipoDB.NONE)
@@ -1447,172 +1380,161 @@ namespace Yordi.EntityMultiSQL
                 Message($"Lista {typeof(T).Name} veio nula");
                 return null;
             }
-            var l = new List<T>();
-            var origem = Environment.MachineName;
-            if (lista.ElementAt(0) is ICommonColumns)
-            {
-                if (!AllowCurrentTimeStamp)
-                {
-                    DateTime dt = DateTime.UtcNow;
-                    l = lista
-                        .Select(m =>
-                        {
-                            ICommonColumns a = (ICommonColumns)m;
-                            a.DataInclusao = dt;
-                            a.DataAlteracao = dt;
-                            a.Origem = origem;
-                            a.UsuarioAlteracao = ControleAlteracao.Usuario;
-                            a.UsuarioInclusao = ControleAlteracao.Usuario;
-                            return m;
-                        })
-                        .ToList();
-                }
-                else
-                {
-                    l = lista
-                        .Select(m =>
-                        {
-                            ICommonColumns a = (ICommonColumns)m;
-                            a.Origem = origem;
-                            a.UsuarioAlteracao = ControleAlteracao.Usuario;
-                            a.UsuarioInclusao = ControleAlteracao.Usuario;
-                            return m;
-                        })
-                        .ToList();
-                }
-            }
-            else
-                l = lista.ToList();
 
-            var item1 = l[0];
-            List<ColumnTable> colunas = BDTools.Campos(item1);
-            StringBuilder sql = new StringBuilder();
-            var where = colunas.Where(m => m.IsAutoIncrement || m.IsKey);
-            var auto = where?.FirstOrDefault(m => m.IsAutoIncrement);
-            var keys = where?.Where(m => m.IsKey);
-            List<T> atualizado = new List<T>();
-            int rowAffected = 0; Guid guid = Guid.Empty;
-            try
+            return await ExecuteFullWriteAsync(async () =>
             {
-                if (auto?.Valor != null && (int)auto.Valor > 0)
+                var l = new List<T>();
+                var origem = Environment.MachineName;
+                if (lista.ElementAt(0) is ICommonColumns)
                 {
-                    sql.Append(UpdateForAutoParameters(item1));
-                }
-                else if (keys != null && keys.Any())
-                {
-                    sql.Append(InsertWithParameters(item1, false));
-                    sql.Append(' ');
-                    sql.Append(UpdateOnDuplicateKey(item1));
-                }
-                else
-                    throw new ArgumentException("Não é possível fazer Update On Duplicate Key sem Key", typeof(T).Name);
-                using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
-                {
-                    using (DbCommand cmm = conexaoSql.CreateCommand())
+                    if (!AllowCurrentTimeStamp)
                     {
-                        cmm.CommandText = sql.ToString();
-                        ColumnTable? d = null;
-
-                        foreach (var item in l)
-                        {
-                            string? nomeAuto = String.Empty;
-                            try
+                        DateTime dt = DateTime.UtcNow;
+                        l = lista
+                            .Select(m =>
                             {
-                                colunas = BDTools.Campos(item);
-                                d = null;
-                                cmm.Parameters.Clear();
-                                foreach (var c in colunas)
-                                {
-                                    if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
+                                ICommonColumns a = (ICommonColumns)m;
+                                a.DataInclusao = dt;
+                                a.DataAlteracao = dt;
+                                a.Origem = origem;
+                                a.UsuarioAlteracao = ControleAlteracao.Usuario;
+                                a.UsuarioInclusao = ControleAlteracao.Usuario;
+                                return m;
+                            })
+                            .ToList();
+                    }
+                    else
+                    {
+                        l = lista
+                            .Select(m =>
+                            {
+                                ICommonColumns a = (ICommonColumns)m;
+                                a.Origem = origem;
+                                a.UsuarioAlteracao = ControleAlteracao.Usuario;
+                                a.UsuarioInclusao = ControleAlteracao.Usuario;
+                                return m;
+                            })
+                            .ToList();
+                    }
+                }
+                else
+                    l = lista.ToList();
 
-                                    d = BDTools.AtualizaValor(c);
-                                    if (c.IsAutoIncrement && c.Tipo == Tipo.GUID)
-                                    {
-                                        if (Guid.TryParse(d.Valor?.ToString(), out guid))
-                                            nomeAuto = c.Campo;
-                                    }
-                                    cmm.Parameters.Add(BDTools.CriaParameter(cmm, d));
-                                }
+                var item1 = l[0];
+                List<ColumnTable> colunas = BDTools.Campos(item1);
+                StringBuilder sql = new StringBuilder();
+                var where = colunas.Where(m => m.IsAutoIncrement || m.IsKey);
+                var auto = where?.FirstOrDefault(m => m.IsAutoIncrement);
+                var keys = where?.Where(m => m.IsKey);
+                List<T> atualizado = new List<T>();
+                int rowAffected = 0; Guid guid = Guid.Empty;
+                try
+                {
+                    if (auto?.Valor != null && (int)auto.Valor > 0)
+                        sql.Append(UpdateForAutoParameters(item1));
+                    else if (keys != null && keys.Any())
+                    {
+                        sql.Append(InsertWithParameters(item1, false));
+                        sql.Append(' ');
+                        sql.Append(UpdateOnDuplicateKey(item1));
+                    }
+                    else
+                        throw new ArgumentException("Não é possível fazer Update On Duplicate Key sem Key", typeof(T).Name);
 
-                                // Usa retry helper para SQLite
-                                int resultado;
-                                if (_bd.TipoDB == TipoDB.SQLite)
-                                {
-                                    resultado = await ExecuteWithSQLiteRetryAsync(
-                                        async () => await cmm.ExecuteNonQueryAsync(),
-                                        sql.ToString(), colunas);
-                                }
-                                else
-                                {
-                                    resultado = await cmm.ExecuteNonQueryAsync();
-                                }
+                    using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+                    {
+                        using (DbCommand cmm = conexaoSql.CreateCommand())
+                        {
+                            cmm.CommandText = sql.ToString();
+                            ColumnTable? d = null;
 
-                                if (resultado > 0)
+                            foreach (var item in l)
+                            {
+                                string? nomeAuto = String.Empty;
+                                try
                                 {
-                                    if (guid != Guid.Empty && !string.IsNullOrEmpty(nomeAuto))
+                                    colunas = BDTools.Campos(item);
+                                    d = null;
+                                    cmm.Parameters.Clear();
+                                    foreach (var c in colunas)
                                     {
-                                        PropertyInfo? propertyInfo = item.GetType().GetProperty(nomeAuto);
-                                        propertyInfo?.SetValue(item, guid);
-                                        guid = Guid.Empty;
-                                    }
-                                    else
-                                    {
-                                        nomeAuto = colunas.FirstOrDefault(m => m.IsAutoIncrement && m.Tipo != Tipo.GUID)?.Campo;
-                                        if (!string.IsNullOrEmpty(nomeAuto))
+                                        if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
+                                        d = BDTools.AtualizaValor(c);
+                                        if (c.IsAutoIncrement && c.Tipo == Tipo.GUID)
                                         {
-                                            if (_bd.DBConfig.TipoDB == TipoDB.MySQL)
-                                                cmm.CommandText = "SELECT LAST_INSERT_ID();";
-                                            else if (_bd.DBConfig.TipoDB == TipoDB.SQLite)
-                                                cmm.CommandText = "SELECT last_insert_rowid()";
-                                            var undefined = await cmm.ExecuteScalarAsync();
-                                            cmm.CommandText = sql.ToString();
-                                            int.TryParse(undefined?.ToString(), out resultado);
-                                            if (resultado > 0)
+                                            if (Guid.TryParse(d.Valor?.ToString(), out guid))
+                                                nomeAuto = c.Campo;
+                                        }
+                                        cmm.Parameters.Add(BDTools.CriaParameter(cmm, d));
+                                    }
+
+                                    int resultado = (int)await cmm.ExecuteNonQueryAsync();
+                                    if (resultado > 0)
+                                    {
+                                        if (guid != Guid.Empty && !string.IsNullOrEmpty(nomeAuto))
+                                        {
+                                            PropertyInfo? propertyInfo = item.GetType().GetProperty(nomeAuto);
+                                            propertyInfo?.SetValue(item, guid);
+                                            guid = Guid.Empty;
+                                        }
+                                        else
+                                        {
+                                            nomeAuto = colunas.FirstOrDefault(m => m.IsAutoIncrement && m.Tipo != Tipo.GUID)?.Campo;
+                                            if (!string.IsNullOrEmpty(nomeAuto))
                                             {
-                                                PropertyInfo? propertyInfo = item.GetType().GetProperty(nomeAuto);
-                                                propertyInfo?.SetValue(item, resultado);
+                                                if (_bd.DBConfig.TipoDB == TipoDB.MySQL)
+                                                    cmm.CommandText = "SELECT LAST_INSERT_ID();";
+                                                else if (_bd.DBConfig.TipoDB == TipoDB.SQLite)
+                                                    cmm.CommandText = "SELECT last_insert_rowid()";
+                                                var undefined = await cmm.ExecuteScalarAsync();
+                                                cmm.CommandText = sql.ToString();
+                                                int.TryParse(undefined?.ToString(), out resultado);
+                                                if (resultado > 0)
+                                                {
+                                                    PropertyInfo? propertyInfo = item.GetType().GetProperty(nomeAuto);
+                                                    propertyInfo?.SetValue(item, resultado);
+                                                }
                                             }
                                         }
+                                        atualizado.Add(item);
+                                        rowAffected++;
                                     }
-                                    atualizado.Add(item);
-                                    rowAffected++;
-                                }
 
-                                if (dispararEventoProgresso)
-                                    Progresso(rowAffected);
-                            }
-                            catch (Exception e)
-                            {
-                                RegistraErro(e, sql.ToString(), colunas);
+                                    if (dispararEventoProgresso)
+                                        Progresso(rowAffected);
+                                }
+                                catch (Exception e)
+                                {
+                                    RegistraErro(e, sql.ToString(), colunas);
+                                }
                             }
                         }
                     }
-                }
 
-                if (Verbose)
-                    Message($"Atualizados: {atualizado.Count} de {l.Count()} em {_tableName}");
-            }
-            catch (Exception e)
-            {
-                RegistraErro(e, sql.ToString(), colunas);
-            }
-            return atualizado;
+                    if (Verbose)
+                        Message($"Atualizados: {atualizado.Count} de {l.Count()} em {_tableName}");
+                }
+                catch (Exception e)
+                {
+                    RegistraErro(e, sql.ToString(), colunas);
+                }
+                return (IEnumerable<T>?)atualizado;
+            });
         }
 
         protected async Task<int> UpdateSpecial(IEnumerable<Chave> camposParaAtualizar,
-                                               IEnumerable<Chave> camposParaWhere)
+                                       IEnumerable<Chave> camposParaWhere)
         {
             string sql = UpdateWithWhereParameters(camposParaAtualizar, camposParaWhere);
             if (string.IsNullOrEmpty(sql)) return 0;
-            int resultado = 0;
-            try
+
+            return await ExecuteWriteAsync(async () =>
             {
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
                     using (DbCommand cmm = conexaoSql.CreateCommand())
                     {
                         cmm.CommandText = sql;
-
                         foreach (var c in camposParaAtualizar)
                         {
                             IChave chave = c as Chave;
@@ -1623,34 +1545,14 @@ namespace Yordi.EntityMultiSQL
                             IChave chave = c as Chave;
                             cmm.Parameters.Add(BDTools.CriaParameter(cmm, chave));
                         }
-
-                        // Usa retry helper para SQLite
-                        if (_bd.TipoDB == TipoDB.SQLite)
-                        {
-                            resultado = await ExecuteWithSQLiteRetryAsync(
-                                async () => await cmm.ExecuteNonQueryAsync(),
-                                sql, camposParaWhere);
-                        }
-                        else
-                        {
-                            resultado = await cmm.ExecuteNonQueryAsync();
-                        }
+                        int resultado = await cmm.ExecuteNonQueryAsync();
+                        if (Verbose)
+                            Message($"Atualizado: {resultado} linha(s) afetada(s) em {_tableName}");
+                        Rows(resultado);
+                        return resultado;
                     }
                 }
-                if (Verbose)
-                    Message($"Atualizado: {resultado} linha(s) afetada(s) em {_tableName}");
-            }
-            catch (Exception e)
-            {
-                var lista = new List<Chave>();
-                if (camposParaAtualizar != null && camposParaWhere.Any())
-                    lista.AddRange(camposParaAtualizar);
-                if (camposParaWhere != null && camposParaWhere.Any())
-                    lista.AddRange(camposParaWhere);
-                RegistraErro(e, sql, lista);
-            }
-            Rows(resultado);
-            return resultado;
+            }, sql, camposParaWhere);
         }
 
 
@@ -1670,38 +1572,34 @@ namespace Yordi.EntityMultiSQL
             {
                 objD.Origem = ControleAlteracao.Origem ?? Environment.MachineName;
                 if (!AllowCurrentTimeStamp)
-                {
                     objD.DataAlteracao = DateTime.UtcNow;
-                }
                 if (string.IsNullOrEmpty(objD.UsuarioAlteracao) && !string.IsNullOrEmpty(ControleAlteracao.Usuario))
-                {
                     objD.UsuarioAlteracao = ControleAlteracao.Usuario;
-                }
             }
-            StringBuilder sql = new StringBuilder(InsertWithParameters(obj, false));
-            sql.Append(' ');
-            sql.Append(UpdateOnDuplicateKey(obj));
-            int resultado = 0;
-            try
-            {
-                using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
-                {
-                    using (DbCommand cmm = conexaoSql.CreateCommand())
-                    {
-                        cmm.CommandText = sql.ToString();
-                        ColumnTable? d = null;
 
-                        string? nomeAuto = String.Empty;
-                        Guid guid = Guid.Empty;
-                        try
+            return await ExecuteFullWriteAsync(async () =>
+            {
+                StringBuilder sql = new StringBuilder(InsertWithParameters(obj, false));
+                sql.Append(' ');
+                sql.Append(UpdateOnDuplicateKey(obj));
+                int resultado = 0;
+                try
+                {
+                    using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
+                    {
+                        using (DbCommand cmm = conexaoSql.CreateCommand())
                         {
+                            cmm.CommandText = sql.ToString();
+                            ColumnTable? d = null;
+                            string? nomeAuto = String.Empty;
+                            Guid guid = Guid.Empty;
+
                             List<ColumnTable> colunas = BDTools.Campos(obj);
                             d = null;
                             cmm.Parameters.Clear();
                             foreach (var c in colunas)
                             {
                                 if (!BDTools.CampoEditavel(c, _bd.AllowCurrentTimeStamp)) continue;
-
                                 d = BDTools.AtualizaValor(c);
                                 if (c.IsAutoIncrement && c.Tipo == Tipo.GUID)
                                 {
@@ -1711,32 +1609,23 @@ namespace Yordi.EntityMultiSQL
                                 cmm.Parameters.Add(BDTools.CriaParameter(cmm, d));
                             }
 
-                            // Usa retry helper para SQLite
-                            if (_bd.TipoDB == TipoDB.SQLite)
-                            {
-                                resultado = await ExecuteWithSQLiteRetryAsync(
-                                    async () => await cmm.ExecuteNonQueryAsync(),
-                                    sql.ToString(), colunas);
-                            }
-                            else
-                            {
-                                resultado = await cmm.ExecuteNonQueryAsync();
-                            }
-
+                            resultado = (int)await cmm.ExecuteNonQueryAsync();
                             if (resultado > 0)
                             {
                                 if (guid != Guid.Empty && !string.IsNullOrEmpty(nomeAuto))
                                 {
                                     PropertyInfo? propertyInfo = obj.GetType().GetProperty(nomeAuto);
                                     propertyInfo?.SetValue(obj, guid);
-                                    guid = Guid.Empty;
                                 }
                                 else
                                 {
                                     nomeAuto = colunas.FirstOrDefault(m => m.IsAutoIncrement && m.Tipo != Tipo.GUID)?.Campo;
                                     if (!string.IsNullOrEmpty(nomeAuto))
                                     {
-                                        cmm.CommandText = "SELECT LAST_INSERT_ID();";
+                                        if (_bd.DBConfig.TipoDB == TipoDB.MySQL)
+                                            cmm.CommandText = "SELECT LAST_INSERT_ID();";
+                                        else if (_bd.DBConfig.TipoDB == TipoDB.SQLite)
+                                            cmm.CommandText = "SELECT last_insert_rowid()";
                                         var undefined = await cmm.ExecuteScalarAsync();
                                         cmm.CommandText = sql.ToString();
                                         int.TryParse(undefined?.ToString(), out resultado);
@@ -1750,76 +1639,56 @@ namespace Yordi.EntityMultiSQL
                             }
                             return obj;
                         }
-                        catch (Exception e)
-                        {
-                            Error(e);
-                            return null;
-                        }
                     }
                 }
-            }
-            catch (Exception e)
-            {
-                Error(e);
-                return null;
-            }
-            finally
-            {
-                if (Verbose)
-                    Message($"Incluído/Alterado [Retorno: {resultado}]: {obj}");
-            }
+                catch (Exception e)
+                {
+                    Error(e);
+                    return null;
+                }
+                finally
+                {
+                    if (Verbose)
+                        Message($"Incluído/Alterado [Retorno: {resultado}]: {obj}");
+                }
+            });
         }
 
         private async Task<int> Delete(T obj)
         {
             string sql = DeleteWithKeyParameters(obj);
-            int resultado = 0;
             List<ColumnTable> colunas = BDTools.Campos(obj);
-            try
+
+            int resultado = await ExecuteWriteAsync(async () =>
             {
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
                     using (DbCommand cmm = conexaoSql.CreateCommand())
                     {
                         cmm.CommandText = sql;
-
                         foreach (var c in colunas)
                         {
                             if (c.IsAutoIncrement || c.IsKey)
                                 cmm.Parameters.Add(BDTools.CriaParameter(cmm, c));
                         }
-
-                        // Usa retry helper para SQLite
-                        if (_bd.TipoDB == TipoDB.SQLite)
-                        {
-                            resultado = await ExecuteWithSQLiteRetryAsync(
-                                async () => await cmm.ExecuteNonQueryAsync(),
-                                sql, colunas);
-                        }
-                        else
-                        {
-                            resultado = await cmm.ExecuteNonQueryAsync();
-                        }
+                        return await cmm.ExecuteNonQueryAsync();
                     }
                 }
-                if (Verbose)
-                    Message($"Excluído: {obj} - {resultado} linha(s) afetada(s)");
-            }
-            catch (Exception e)
-            {
-                Error(e.Message);
-            }
+            }, sql, colunas);
+
+            if (Verbose && resultado > 0)
+                Message($"Excluído: {obj} - {resultado} linha(s) afetada(s)");
             Rows(resultado);
             return resultado;
         }
 
-
         private async Task<int> Delete(IEnumerable<T> lista, bool dispararEventoProgresso = false)
         {
             string sql = DeleteWithKeyParameters(lista.ElementAt(0));
-            int rowAffected = 0;
-            try
+
+            var resultado = await ExecuteFullWriteAsync(async () =>
             {
+                int rowAffected = 0;
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
                     using (DbCommand cmm = conexaoSql.CreateCommand())
@@ -1831,27 +1700,12 @@ namespace Yordi.EntityMultiSQL
                             {
                                 cmm.Parameters.Clear();
                                 List<ColumnTable> colunas = BDTools.Campos(item);
-
                                 foreach (var c in colunas)
                                 {
                                     if (c.IsAutoIncrement || c.IsKey)
                                         cmm.Parameters.Add(BDTools.CriaParameter(cmm, c));
                                 }
-
-                                int resultado;
-                                // Usa retry helper para SQLite
-                                if (_bd.TipoDB == TipoDB.SQLite)
-                                {
-                                    resultado = await ExecuteWithSQLiteRetryAsync(
-                                        async () => await cmm.ExecuteNonQueryAsync(),
-                                        sql, colunas);
-                                }
-                                else
-                                {
-                                    resultado = await cmm.ExecuteNonQueryAsync();
-                                }
-                                rowAffected += resultado;
-
+                                rowAffected += await cmm.ExecuteNonQueryAsync();
                                 if (dispararEventoProgresso)
                                     Progresso(rowAffected);
                             }
@@ -1864,12 +1718,10 @@ namespace Yordi.EntityMultiSQL
                 }
                 if (Verbose)
                     Message($"Excluídos: {lista.Count()} - {rowAffected} linha(s) afetada(s) em {_tableName}");
-            }
-            catch (Exception e)
-            {
-                Error(e.Message);
-            }
-            return rowAffected;
+                return rowAffected;
+            });
+
+            return resultado;
         }
 
         private async Task<int> Delete(IEnumerable<T> lista, int limite)
@@ -1905,7 +1757,7 @@ namespace Yordi.EntityMultiSQL
         /// <returns></returns>
         private async Task<int> Delete(IEnumerable<Chave> camposParaWhere)
         {
-            if (camposParaWhere == null || camposParaWhere.Count() == 0)
+            if (camposParaWhere == null || !camposParaWhere.Any())
             {
                 Message("Impossível excluir, faltam dados.");
                 return -1;
@@ -1914,12 +1766,11 @@ namespace Yordi.EntityMultiSQL
             string sql = DeleteWithWhereParameters(camposParaWhere);
             if (String.IsNullOrEmpty(sql))
             {
-                Message("Imppossível excluir, faltam dados.");
+                Message("Impossível excluir, faltam dados.");
                 return -1;
             }
 
-            int resultado = -1;
-            try
+            int resultado = await ExecuteWriteAsync(async () =>
             {
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
@@ -1930,43 +1781,27 @@ namespace Yordi.EntityMultiSQL
                         {
                             cmm.Parameters.Add(BDTools.CriaParameter(cmm, c));
                         }
-
-                        // Usa retry helper para SQLite
-                        if (_bd.TipoDB == TipoDB.SQLite)
-                        {
-                            resultado = await ExecuteWithSQLiteRetryAsync(
-                                async () => await cmm.ExecuteNonQueryAsync(),
-                                sql, camposParaWhere);
-                        }
-                        else
-                        {
-                            resultado = await cmm.ExecuteNonQueryAsync();
-                        }
+                        return await cmm.ExecuteNonQueryAsync();
                     }
                 }
-                if (Verbose)
-                    Message($"Excluídos: {camposParaWhere.Count()} - {resultado} linha(s) afetada(s) em {_tableName}");
-            }
-            catch (Exception e)
-            {
-                Error(e.Message);
-            }
+            }, sql, camposParaWhere);
+
+            if (Verbose)
+                Message($"Excluídos: {camposParaWhere.Count()} - {resultado} linha(s) afetada(s) em {_tableName}");
             Rows(resultado);
             Message($"Excluídos: {resultado}");
             return resultado;
-
         }
 
         protected virtual async Task<int> ExecuteSQL(string sql, IEnumerable<Chave>? parametros = null)
         {
-            int rows = 0;
-            try
+            int rows = await ExecuteWriteAsync(async () =>
             {
                 using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                 {
                     using (DbCommand cmm = conexaoSql.CreateCommand())
                     {
-                        if (parametros != null && parametros.Count() > 0)
+                        if (parametros != null && parametros.Any())
                         {
                             foreach (var c in parametros)
                             {
@@ -1975,34 +1810,18 @@ namespace Yordi.EntityMultiSQL
                         }
                         cmm.Connection = conexaoSql;
                         cmm.CommandText = sql;
-
-                        // Usa retry helper para SQLite
-                        if (_bd.TipoDB == TipoDB.SQLite)
-                        {
-                            rows = await ExecuteWithSQLiteRetryAsync(
-                                async () => await cmm.ExecuteNonQueryAsync(),
-                                sql, parametros);
-                        }
-                        else
-                        {
-                            rows = await cmm.ExecuteNonQueryAsync();
-                        }
+                        return await cmm.ExecuteNonQueryAsync();
                     }
-                    _msg = String.Empty;
                 }
-                if (Verbose)
-                    Message($"Comando SQL executado: {sql} - {rows} linha(s) afetada(s)");
-            }
-            catch (Exception e)
-            {
-                RegistraErro(e, sql, parametros);
-            }
+            }, sql, parametros);
+
+            _msg = String.Empty;
+            if (Verbose)
+                Message($"Comando SQL executado: {sql} - {rows} linha(s) afetada(s)");
             Rows(rows);
             Message($"{ExecuteSQLTable(sql)} afetados: {rows}");
             return rows;
-
         }
-
         private string ExecuteSQLTable(string sql)
         {
             IEnumerable<Type>? types = _bd.Tabelas;
@@ -2025,56 +1844,175 @@ namespace Yordi.EntityMultiSQL
             return await _bd.IsServerConnectedAsync();
         }
 
-        #region SQLite Retry Helper Methods
 
-        /// <summary>
-        /// Contador para evitar loops infinitos de retry
-        /// </summary>
+
+        #region SQLite Write Lock + Retry Helper
         private int _retryCount = 0;
         private const int MaxRetryAttempts = 3;
 
         /// <summary>
-        /// Executa operação com retry automático para SQLite em caso de database locked
+        /// Executa uma operação de escrita no SQLite com lock exclusivo e retry automático.
+        /// Para MySQL e outros bancos, executa diretamente sem lock.
         /// </summary>
-        private async Task<int> ExecuteWithSQLiteRetryAsync(
-            Func<Task<int>> operation,
+        /// <param name="writeOperation">Operação de escrita a ser executada</param>
+        /// <param name="sql">SQL para log de erro</param>
+        /// <param name="colunas">Colunas para log de erro</param>
+        /// <param name="cancellationToken">Token de cancelamento</param>
+        /// <returns>Número de linhas afetadas</returns>
+        private async Task<int> ExecuteWriteAsync(
+            Func<Task<int>> writeOperation,
             string sql,
-            IEnumerable<ColumnTable>? colunas)
+            IEnumerable<ColumnTable>? colunas,
+            CancellationToken cancellationToken = default)
         {
-            return await SQLiteRetryHelper.ExecuteWithRetryAsync(
-                operation,
-                maxRetries: SQLiteRetryHelper.DefaultMaxRetries,
-                retryDelayMs: SQLiteRetryHelper.DefaultRetryDelayMs,
-                onRetry: (attempt, ex) =>
+            if (_bd.TipoDB != TipoDB.SQLite)
+            {
+                try
                 {
-                    if (Verbose)
-                        Message($"SQLite bloqueado (tentativa {attempt}): {ex.Message}. Tentando liberar locks...");
+                    return await writeOperation();
+                }
+                catch (Exception e)
+                {
+                    RegistraErro(e, sql, colunas);
+                    return 0;
+                }
+            }
 
-                    // Tenta liberar locks
-                    SQLiteRetryHelper.LimparPoolsConexao();
-                });
+            bool lockObtido = false;
+            try
+            {
+                lockObtido = await _bd.AguardarLockEscritaAsync(cancellationToken);
+                if (!lockObtido)
+                {
+                    Message($"Timeout ou cancelamento ao aguardar lock de escrita para {_tableName}");
+                    return 0;
+                }
+
+                return await SQLiteRetryHelper.ExecuteWithRetryAsync(
+                    writeOperation,
+                    maxRetries: SQLiteRetryHelper.DefaultMaxRetries,
+                    retryDelayMs: SQLiteRetryHelper.DefaultRetryDelayMs,
+                    onRetry: (attempt, ex) =>
+                    {
+                        if (Verbose)
+                            Message($"SQLite bloqueado (tentativa {attempt}): {ex.Message}");
+                        SQLiteRetryHelper.LimparPoolsConexao();
+                    });
+            }
+            catch (OperationCanceledException)
+            {
+                Message($"Operação de escrita cancelada em {_tableName}");
+                return 0;
+            }
+            catch (Exception e)
+            {
+                RegistraErro(e, sql, colunas);
+                return 0;
+            }
+            finally
+            {
+                if (lockObtido)
+                    _bd.LiberarLockEscrita();
+            }
         }
 
         /// <summary>
-        /// Executa operação com retry automático para SQLite em caso de database locked
+        /// Sobrecarga para parâmetros do tipo Chave
         /// </summary>
-        private async Task<int> ExecuteWithSQLiteRetryAsync(
-            Func<Task<int>> operation,
+        private async Task<int> ExecuteWriteAsync(
+            Func<Task<int>> writeOperation,
             string sql,
-            IEnumerable<Chave>? chaves)
+            IEnumerable<Chave>? chaves,
+            CancellationToken cancellationToken = default)
         {
-            return await SQLiteRetryHelper.ExecuteWithRetryAsync(
-                operation,
-                maxRetries: SQLiteRetryHelper.DefaultMaxRetries,
-                retryDelayMs: SQLiteRetryHelper.DefaultRetryDelayMs,
-                onRetry: (attempt, ex) =>
+            if (_bd.TipoDB != TipoDB.SQLite)
+            {
+                try
                 {
-                    if (Verbose)
-                        Message($"SQLite bloqueado (tentativa {attempt}): {ex.Message}. Tentando liberar locks...");
+                    return await writeOperation();
+                }
+                catch (Exception e)
+                {
+                    RegistraErro(e, sql, chaves);
+                    return 0;
+                }
+            }
 
-                    // Tenta liberar locks
-                    SQLiteRetryHelper.LimparPoolsConexao();
-                });
+            bool lockObtido = false;
+            try
+            {
+                lockObtido = await _bd.AguardarLockEscritaAsync(cancellationToken);
+                if (!lockObtido)
+                {
+                    Message($"Timeout ou cancelamento ao aguardar lock de escrita para {_tableName}");
+                    return 0;
+                }
+
+                return await SQLiteRetryHelper.ExecuteWithRetryAsync(
+                    writeOperation,
+                    maxRetries: SQLiteRetryHelper.DefaultMaxRetries,
+                    retryDelayMs: SQLiteRetryHelper.DefaultRetryDelayMs,
+                    onRetry: (attempt, ex) =>
+                    {
+                        if (Verbose)
+                            Message($"SQLite bloqueado (tentativa {attempt}): {ex.Message}");
+                        SQLiteRetryHelper.LimparPoolsConexao();
+                    });
+            }
+            catch (OperationCanceledException)
+            {
+                Message($"Operação de escrita cancelada em {_tableName}");
+                return 0;
+            }
+            catch (Exception e)
+            {
+                RegistraErro(e, sql, chaves);
+                return 0;
+            }
+            finally
+            {
+                if (lockObtido)
+                    _bd.LiberarLockEscrita();
+            }
+        }
+
+        /// <summary>
+        /// Executa uma operação completa de escrita (conexão + transação + execução)
+        /// dentro do lock exclusivo do SQLite.
+        /// </summary>
+        /// <typeparam name="TResult">Tipo do resultado</typeparam>
+        /// <param name="writeOperation">Operação completa incluindo conexão</param>
+        /// <param name="cancellationToken">Token de cancelamento</param>
+        /// <returns>Resultado da operação</returns>
+        private async Task<TResult?> ExecuteFullWriteAsync<TResult>(
+            Func<Task<TResult?>> writeOperation,
+            CancellationToken cancellationToken = default)
+        {
+            if (_bd.TipoDB != TipoDB.SQLite)
+                return await writeOperation();
+
+            bool lockObtido = false;
+            try
+            {
+                lockObtido = await _bd.AguardarLockEscritaAsync(cancellationToken);
+                if (!lockObtido)
+                {
+                    Message($"Timeout ou cancelamento ao aguardar lock de escrita para {_tableName}");
+                    return default;
+                }
+
+                return await writeOperation();
+            }
+            catch (OperationCanceledException)
+            {
+                Message($"Operação de escrita cancelada em {_tableName}");
+                return default;
+            }
+            finally
+            {
+                if (lockObtido)
+                    _bd.LiberarLockEscrita();
+            }
         }
 
         /// <summary>
@@ -2093,18 +2031,95 @@ namespace Yordi.EntityMultiSQL
             if (Verbose)
                 Message($"Tentando liberar locks do SQLite (tentativa {_retryCount}/{MaxRetryAttempts})...");
 
-            // Limpa pools e força GC
             SQLiteRetryHelper.LimparPoolsConexao();
 
-            // Tenta liberar via conexão
             await _bd.LiberarLocksSQLiteAsync();
 
-            // Aguarda um pouco antes de tentar novamente
             await Task.Delay(500 * _retryCount);
 
             return true;
         }
 
         #endregion
+
+        //#region SQLite Retry Helper Methods
+
+        ///// <summary>
+        ///// Contador para evitar loops infinitos de retry
+        ///// </summary>
+
+        ///// <summary>
+        ///// Executa operação com retry automático para SQLite em caso de database locked
+        ///// </summary>
+        //private async Task<int> ExecuteWithSQLiteRetryAsync(
+        //    Func<Task<int>> operation,
+        //    string sql,
+        //    IEnumerable<ColumnTable>? colunas)
+        //{
+        //    return await SQLiteRetryHelper.ExecuteWithRetryAsync(
+        //        operation,
+        //        maxRetries: SQLiteRetryHelper.DefaultMaxRetries,
+        //        retryDelayMs: SQLiteRetryHelper.DefaultRetryDelayMs,
+        //        onRetry: (attempt, ex) =>
+        //        {
+        //            if (Verbose)
+        //                Message($"SQLite bloqueado (tentativa {attempt}): {ex.Message}. Tentando liberar locks...");
+
+        //            // Tenta liberar locks
+        //            SQLiteRetryHelper.LimparPoolsConexao();
+        //        });
+        //}
+
+        ///// <summary>
+        ///// Executa operação com retry automático para SQLite em caso de database locked
+        ///// </summary>
+        //private async Task<int> ExecuteWithSQLiteRetryAsync(
+        //    Func<Task<int>> operation,
+        //    string sql,
+        //    IEnumerable<Chave>? chaves)
+        //{
+        //    return await SQLiteRetryHelper.ExecuteWithRetryAsync(
+        //        operation,
+        //        maxRetries: SQLiteRetryHelper.DefaultMaxRetries,
+        //        retryDelayMs: SQLiteRetryHelper.DefaultRetryDelayMs,
+        //        onRetry: (attempt, ex) =>
+        //        {
+        //            if (Verbose)
+        //                Message($"SQLite bloqueado (tentativa {attempt}): {ex.Message}. Tentando liberar locks...");
+
+        //            // Tenta liberar locks
+        //            SQLiteRetryHelper.LimparPoolsConexao();
+        //        });
+        //}
+
+        ///// <summary>
+        ///// Tenta liberar locks e repetir operação (controle de recursão)
+        ///// </summary>
+        //private async Task<bool> TentarLiberarERepetirAsync()
+        //{
+        //    if (_retryCount >= MaxRetryAttempts)
+        //    {
+        //        _retryCount = 0;
+        //        return false;
+        //    }
+
+        //    _retryCount++;
+
+        //    if (Verbose)
+        //        Message($"Tentando liberar locks do SQLite (tentativa {_retryCount}/{MaxRetryAttempts})...");
+
+        //    // Limpa pools e força GC
+        //    SQLiteRetryHelper.LimparPoolsConexao();
+
+        //    // Tenta liberar via conexão
+        //    await _bd.LiberarLocksSQLiteAsync();
+
+        //    // Aguarda um pouco antes de tentar novamente
+        //    await Task.Delay(500 * _retryCount);
+
+        //    return true;
+        //}
+
+        //#endregion
     }
 }
