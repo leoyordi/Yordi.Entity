@@ -16,6 +16,19 @@ namespace Yordi.EntityMultiSQL
         
         // Métodos para gerenciamento de locks
         void ResetarConexao();
+
+        /// <summary>
+        /// Executa checkpoint manual do SQLite (WAL -> arquivo principal) sem mudar o journal mode.
+        /// Útil para cenários de ciclo de vida como Windows Service em <c>OnPause</c>, quando se deseja
+        /// reduzir WAL e manter operação em <c>OnContinue</c>.
+        /// </summary>
+        Task<bool> CheckpointSQLiteAsync();
+
+        /// <summary>
+        /// Liberação forte de locks/arquivos auxiliares do SQLite.
+        /// Recomendado para encerramento definitivo (ex.: <c>OnStop</c>/<c>OnShutdown</c>),
+        /// normalmente seguido por <see cref="IAsyncDisposable.DisposeAsync"/>.
+        /// </summary>
         Task<bool> LiberarLocksSQLiteAsync();
 
         /// <summary>

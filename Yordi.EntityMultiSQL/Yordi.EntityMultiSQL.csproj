@@ -12,11 +12,12 @@
 	</Description>
 	<PackageTags>Yordi;Tools;Ferramentas;Entity;MySQL;SQLite;Index;Partial Index;Database</PackageTags>
 	<PackageId>Yordi.EntityMultiSQL</PackageId>
-	  <Version>1.2.0</Version>
+	  <Version>1.2.1</Version>
 	<Company>Yordi Sistemas Inteligentes</Company>
 	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
 	<PackageReadmeFile>README.md</PackageReadmeFile>
 	<PackageReleaseNotes>
+		v1.2.1: Adicionado CheckpointSQLiteAsync para checkpoint manual (sem alterar journal_mode), com orientação para uso em ciclos de serviço (OnPause/OnContinue) e manutenção da liberação forte para OnStop/OnShutdown.
 		v1.2.0: Lançamento oficial da versão 1.2.0.
 		v1.2.0-rc3: Acréscimo de recursos para lidar com 'database is locked' no SQLite.
 		v1.2.0-rc2: Correção de bugs menores. Atualização da biblioteca Yordi.Tools para v1.0.16.
@@ -33,5 +34,12 @@
 	  <PackageReference Include="SQLitePCLRaw.core" Version="3.0.2" />
 	  <PackageReference Include="System.Data.SQLite" Version="2.0.2" />
 	  <PackageReference Include="Yordi.Tools" Version="1.0.18.2" />
-  </ItemGroup>
+	  <None Include="README.md" Pack="true" PackagePath="\" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Update="README.md">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	</ItemGroup>
 </Project>

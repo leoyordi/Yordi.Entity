@@ -281,6 +281,36 @@ namespace Yordi.EntityMultiSQL
         #region Utilitários estáticos
 
         /// <summary>
+        /// Executa checkpoint manual do WAL sem alterar <c>journal_mode</c>.
+        /// Ideal para cenários de pausa/continuidade de serviço onde se deseja manter WAL ativo.
+        /// </summary>
+        internal static async Task<bool> CheckpointAsync(string? connectionString)
+        {
+            if (string.IsNullOrEmpty(connectionString))
+                return false;
+
+            try
+            {
+                using var conexao = new SQLiteConnection(connectionString);
+                await conexao.OpenAsync();
+                using var cmd = conexao.CreateCommand();
+
+                cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                await cmd.ExecuteNonQueryAsync();
+
+                cmd.CommandText = "PRAGMA shrink_memory;";
+                await cmd.ExecuteNonQueryAsync();
+
+                await conexao.CloseAsync();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Obtém informações do arquivo SQLite (PRAGMA schema_version).
         /// Usa conexão temporária independente.
         /// </summary>

@@ -22,6 +22,7 @@ Framework .NET para mapeamento POCO → SQL, CRUD assíncrono, criação/atualiz
   - `BusyTimeout`
   - WAL mode (`PRAGMA journal_mode=WAL`)
   - lock de escrita coordenado por semáforo
+- Checkpoint manual para cenários de pausa/continuidade de serviço
 - Encerramento gracioso de conexão SQLite com checkpoint WAL no shutdown
 
 ---
@@ -38,6 +39,8 @@ Gerencia o ciclo de vida da conexão SQLite:
 - habilitação idempotente de WAL mode
 - conexão por operação: cada chamada a `CriarConexao()` retorna uma nova `SQLiteConnection`; o pool nativo do SQLite reaproveita a conexão nativa — instanciar o objeto .NET é barato
 - serialização de escrita com `SemaphoreSlim` estático
+- checkpoint manual sem alterar `journal_mode`:
+  - **`CheckpointAsync`** (via `CheckpointSQLiteAsync`): `PRAGMA wal_checkpoint(TRUNCATE)` + `PRAGMA shrink_memory`
 - dois caminhos de encerramento:
   - **`EncerrarAsync`** (via `Dispose`/`DisposeAsync`): aguarda lock de escrita, `PRAGMA wal_checkpoint(TRUNCATE)`, `PRAGMA shrink_memory`, fechamento e limpeza de pool
   - **`LiberarLocksAsync`** (via `LiberarLocksSQLiteAsync`): limpeza de pool, checkpoint, `PRAGMA journal_mode=DELETE` (remove arquivos `-wal`/`-shm`), segundo checkpoint, `PRAGMA shrink_memory`, fechamento e limpeza de pool
@@ -49,6 +52,7 @@ Além de abrir conexão, agora expõe métodos explícitos para lock/shutdown:
 - `AguardarLockEscritaAsync(...)`
 - `LiberarLockEscrita()`
 - `ResetarConexao()`
+- `CheckpointSQLiteAsync()`
 - `LiberarLocksSQLiteAsync()`
 
 ### 3) `BDConexao` mais resiliente
@@ -122,6 +126,26 @@ public class MinhaEntidade
 
 ---
 
+## Ciclo de vida em Windows Service (OnPause / OnContinue / OnStop)
+
+Exemplo recomendado para SQLite:
+
+```csharp
+// OnPause: checkpoint leve, mantém WAL e operação para continuar depois
+await conexao.CheckpointSQLiteAsync();
+
+// OnContinue: retoma processamento normal
+
+// OnStop/OnShutdown: encerramento forte + dispose
+await conexao.LiberarLocksSQLiteAsync();
+await conexao.DisposeAsync();
+```
+
+`CheckpointSQLiteAsync` não altera `journal_mode`, portanto é apropriado para pausa temporária.
+`LiberarLocksSQLiteAsync` aplica `PRAGMA journal_mode=DELETE`, indicado para encerramento definitivo.
+
+---
+
 ## Índices automáticos e parciais
 
 A biblioteca mantém suporte a índices definidos nas entidades via `IPOCOIndexes` e classe `Chave` (`Yordi.Tools`), inclusive com cláusula `WHERE`.
@@ -147,6 +171,9 @@ await conexao.DisposeAsync();
 
 ## Evolução (resumo)
 
+- **1.2.1**
+  - adicionado `CheckpointSQLiteAsync` para checkpoint manual sem alterar `journal_mode`
+  - documentação de uso para ciclos `OnPause`/`OnContinue`/`OnStop` em serviços
 - **1.2.0**
   - consolidação dos recursos de concorrência SQLite
   - melhorias para cenários de `database is locked`

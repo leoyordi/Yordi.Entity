@@ -292,6 +292,41 @@ namespace Yordi.EntityMultiSQL
             }
         }
 
+        /// <summary>
+        /// Executa checkpoint manual do SQLite sem alterar o <c>journal_mode</c>.
+        /// <para>
+        /// Indicado para ciclos de serviço (ex.: <c>OnPause</c>) quando se deseja aplicar WAL no arquivo principal,
+        /// reduzir cache/transientes e manter o serviço apto para <c>OnContinue</c> em modo WAL.
+        /// </para>
+        /// <para>
+        /// Para encerramento definitivo (ex.: <c>OnStop</c>/<c>OnShutdown</c>), prefira
+        /// <see cref="LiberarLocksSQLiteAsync"/> seguido de <see cref="DisposeAsync"/>
+        /// </para>
+        /// </summary>
+        public async Task<bool> CheckpointSQLiteAsync()
+        {
+            if (_dbConfig.TipoDB != TipoDB.SQLite)
+                return true;
+
+            try
+            {
+                return await SQLiteConnectionManager.CheckpointAsync(
+                    _sqliteManager?.ConnectionString ?? _dbConfig.StringDeConexaoMontada());
+            }
+            catch (Exception ex)
+            {
+                Error(ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Executa liberação forte de locks/arquivos auxiliares do SQLite.
+        /// <para>
+        /// Indicado para encerramento definitivo (ex.: <c>OnStop</c>/<c>OnShutdown</c>),
+        /// pois inclui <c>PRAGMA journal_mode=DELETE</c> para remover arquivos <c>-wal</c>/<c>-shm</c>.
+        /// </para>
+        /// </summary>
         public async Task<bool> LiberarLocksSQLiteAsync()
         {
             if (_dbConfig.TipoDB != TipoDB.SQLite)
