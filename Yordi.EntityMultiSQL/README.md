@@ -12,6 +12,7 @@ Framework .NET para mapeamento POCO → SQL, CRUD assíncrono, criação/atualiz
 ## Principais recursos
 
 - CRUD assíncrono com repositórios genéricos
+- Resultado encapsulado por operação (`Result<T>` / `RepositorioResult<T>`) — distingue sucesso, não-encontrado, conflito, bloqueio e erro
 - Criação e atualização de tabelas por reflexão de POCOs
 - Gerenciamento automático de índices:
   - simples
@@ -126,6 +127,48 @@ public class MinhaEntidade
 
 ---
 
+## Resultado encapsulado (`Result<T>`)
+
+Os métodos do repositório retornam `Task<T?>`, `bool` ou `int`. Esse retorno "cru" não distingue, por exemplo, *"não encontrei"* de *"deu erro"*, nem *"0 linhas afetadas"* de *"falha"* — a informação ficava apenas no campo `Mensagem` (compartilhado e sujeito a corrida em uso concorrente).
+
+`RepositorioResult<T>` é um *decorator* que envolve qualquer `RepositorioAsyncAbstract<T>` e traduz cada operação em um `Result<T>` explícito, capturando erros pelos eventos da instância (sem parsing de string).
+
+### Status possíveis (`StatusOperacao`)
+
+| Status | Significado |
+|---|---|
+| `Sucesso` | operou e teve efeito (achou / inseriu / atualizou) |
+| `NaoEncontrado` | executou sem erro, mas sem resultado (SELECT vazio, 0 linhas afetadas) |
+| `Conflito` | esperava um único registro e o `WHERE` casou com mais de um |
+| `Bloqueado` | bloqueio transitório (timeout de lock ou `database is locked`) — candidato a retry |
+| `Erro` | exceção do banco ou de mapeamento |
+
+### Uso
+
+```csharp
+var repo = new RepositorioResult<MinhaEntidade>(new MeuRepositorio(conexao));
+
+var r = await repo.Item(new MinhaEntidade { Codigo = "ABC" });
+switch (r.Status)
+{
+    case StatusOperacao.Sucesso:       Usar(r.Valor!);       break;
+    case StatusOperacao.NaoEncontrado: Avisar("não existe"); break;
+    case StatusOperacao.Bloqueado:     AgendarRetry();       break; // transitório
+    case StatusOperacao.Erro:          Logar(r.Erro);        break; // r.Erro traz SQL e parâmetros em .Data
+}
+
+// atalhos:  r.Sucesso · r.Falhou · r.Conflitou · r.Bloqueou · r.TemValor
+// dados:    r.Valor · r.LinhasAfetadas · r.Mensagem · r.Erro
+```
+
+Em `Conflito`, `r.LinhasAfetadas` traz a quantidade de registros que casaram o critério. Em falhas, `r.Erro` preserva o contexto de diagnóstico (SQL e parâmetros em `Exception.Data`).
+
+> **Concorrência:** o decorator captura erros assinando os eventos da instância **durante** a chamada. Use uma instância por operação lógica (o tempo de vida *transient*/*scoped* normal de um repositório); não compartilhe a mesma instância entre operações concorrentes.
+
+A API existente (`Task<T?>` / `bool` / `int`) permanece inalterada — a adoção do `Result<T>` é incremental.
+
+---
+
 ## Ciclo de vida em Windows Service (OnPause / OnContinue / OnStop)
 
 Exemplo recomendado para SQLite:
@@ -171,6 +214,13 @@ await conexao.DisposeAsync();
 
 ## Evolução (resumo)
 
+- **1.3.0**
+  - **Novo:** resultado encapsulado `Result<T>` + `StatusOperacao` (`Sucesso`, `NaoEncontrado`, `Conflito`, `Bloqueado`, `Erro`) — elimina a ambiguidade de `null`/`false`/`0` e a corrida do campo `Mensagem` compartilhado
+  - **Novo:** `RepositorioResult<T>` — *decorator* sobre `RepositorioAsyncAbstract` que traduz cada operação em `Result<T>`, capturando erros pelos eventos (sem parsing de string)
+  - **Novo:** `ConflitoException` (`AtualizarOuIncluir` com `WHERE` ambíguo) e `BloqueioException` (timeout de lock), classificadas como `Conflito`/`Bloqueado`; `database is locked` do SQLite também é reconhecido como `Bloqueado`, permitindo retry
+  - **Novo:** projeto de testes xUnit `Yordi.EntityMultiSQL.Tests` (cobre `Conflito`, `Bloqueado`, `Erro`, `Sucesso` e `NaoEncontrado`)
+  - **Mudança de comportamento:** timeout de lock agora dispara `ExceptionEvent` (antes `MessageEvent`); a API existente permanece compatível
+  - dependência: `Yordi.Tools` 1.0.22
 - **1.2.5**
   - **Fix:** `AtualizaValor` lançava `InvalidCastException` ao processar propriedades `DateOnly` mapeadas como `Tipo.DATA` — o cast direto `(DateTime)c.Valor` foi substituído por um guard `is DateOnly`, deixando o valor passar sem modificação para normalização em `CriaParameter`
   - **Fix:** `Objeto(DataRow)` — `TimeOnly` e `TimeSpan` agora reconhecem o formato `"0001-01-01 HH:mm:ss.fff"` gravado pelo `CriaParameter`, usando `DateTime.TryParse` como fallback; formatos tradicionais (`"HH:mm"`, `"HH:mm:ss"`, `"d.HH:mm:ss.fff"`) continuam suportados
