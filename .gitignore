@@ -14,3 +14,5 @@
 /VisualData/obj
 /Yordi.EntityMultiSQL.Tests/bin
 /Yordi.EntityMultiSQL.Tests/obj
+/nupkg
+*.csproj.user
