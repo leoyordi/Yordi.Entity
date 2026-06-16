@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.Data;
 using System.Reflection;
 using System.Text;
@@ -9,6 +9,7 @@ namespace Yordi.EntityMultiSQL
     public abstract class RepositorioBaseAbstract<T> : CommonBaseAbstract<T> where T : class
     {
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, PropertyInfo[]> _propertyCache = new();
         protected string _tableName;
         private readonly IBDConexao _bd;
         BDTools _bdTools;
@@ -42,61 +43,193 @@ namespace Yordi.EntityMultiSQL
         {
             T obj = Activator.CreateInstance<T>();
             object? c; CommonColumns? common = null;
-            bool utcDatas = false;
+            // FIX #3: utcDatas ativado corretamente
+            bool utcDatas = !AllowCurrentTimeStamp;
             if (obj is CommonColumns commonC)
-            {
-                //if (!AllowCurrentTimeStamp)
-                //    utcDatas = true;
                 common = commonC;
-            }
-            var properties = obj.GetType().GetProperties();
+
+            // FIX #6: cache de propriedades por tipo evita reflexão repetida
+            var properties = _propertyCache.GetOrAdd(obj.GetType(), t => t.GetProperties());
+
             foreach (var prop in properties)
             {
                 try
                 {
-                    //PropertyInfo p = obj.GetType().GetProperty(prop.Name);
                     var bdIgnorar = Attribute.GetCustomAttribute(prop, typeof(BDIgnorarAttribute)) as BDIgnorarAttribute;
                     if (bdIgnorar != null)
                         continue;
-                    if (prop != null && prop.CanRead && prop.CanWrite)
-                    {
-                        c = row[prop.Name];
-                        bool isNull = c == null || DBNull.Value.Equals(c);
-                        if (prop.PropertyType.IsEnum && c != null)
-                            prop.SetValue(obj, Enum.ToObject(prop.PropertyType, c), null);
-                        else
-                        {
-                            Type t = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-                            if (t.IsEnum && !isNull && c != null)
-                                prop.SetValue(obj, Enum.ToObject(t, c), null);
-                            else if (t == typeof(Guid) && c != null)
-                            {
-                                if (c is Guid g)
-                                    prop.SetValue(obj, g, null);
-                                else if (c is string s && Guid.TryParse(s, out Guid g2))
-                                    prop.SetValue(obj, g2, null);
-                                else if (c is byte[] b && b.Length == 16)
-                                    prop.SetValue(obj, new Guid(b), null);
-                                else if (!isNull)
-                                    throw new InvalidCastException($"Imposs�vel converter {c.GetType().Name} para GUID");
-                            }
-                            else
-                            {
-                                object? safeValue = isNull ? null : Convert.ChangeType(c, t);
-                                //object safeValue = null;
-                                //if (c != null && !DBNull.Value.Equals(c))
-                                //    safeValue = Convert.ChangeType(c, t);
 
-                                prop.SetValue(obj, safeValue, null);
-                                if (utcDatas && safeValue != null && common != null)
-                                {
-                                    if (string.Equals(prop.Name, nameof(CommonColumns.DataInclusao), StringComparison.OrdinalIgnoreCase))
-                                        common.DataInclusao = ((DateTime)safeValue).ToLocalTime();
-                                    else if (string.Equals(prop.Name, nameof(CommonColumns.DataAlteracao), StringComparison.OrdinalIgnoreCase))
-                                        common.DataAlteracao = ((DateTime)safeValue).ToLocalTime();
-                                }
+                    if (prop == null || !prop.CanRead || !prop.CanWrite)
+                        continue;
+
+                    // FIX #1: verificar se a coluna existe no DataRow antes de acessar
+                    if (!row.Table.Columns.Contains(prop.Name))
+                        continue;
+
+                    c = row[prop.Name];
+                    bool isNull = c == null || DBNull.Value.Equals(c);
+
+                    // FIX #2: tipo valor não-anulável com valor nulo → manter default
+                    if (isNull)
+                    {
+                        bool isNullable = !prop.PropertyType.IsValueType
+                                          || Nullable.GetUnderlyingType(prop.PropertyType) != null;
+                        if (!isNullable)
+                            continue;
+                        prop.SetValue(obj, null, null);
+                        continue;
+                    }
+
+                    if (prop.PropertyType.IsEnum)
+                    {
+                        prop.SetValue(obj, Enum.ToObject(prop.PropertyType, c!), null);
+                        continue;
+                    }
+
+                    Type t = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+
+                    if (t.IsEnum)
+                    {
+                        prop.SetValue(obj, Enum.ToObject(t, c!), null);
+                    }
+                    else if (t == typeof(Guid))
+                    {
+                        if (c is Guid g)
+                            prop.SetValue(obj, g, null);
+                        else if (c is string s && Guid.TryParse(s, out Guid g2))
+                            prop.SetValue(obj, g2, null);
+                        else if (c is byte[] b && b.Length == 16)
+                            prop.SetValue(obj, new Guid(b), null);
+                        else
+                            throw new InvalidCastException($"Impossível converter {c!.GetType().Name} para Guid");
+                    }
+                    else if (t == typeof(DateOnly))
+                    {
+                        if (c is DateOnly dateOnly)
+                            prop.SetValue(obj, dateOnly, null);
+                        else if (c is DateTime dateTime)
+                            prop.SetValue(obj, DateOnly.FromDateTime(dateTime), null);
+                        else if (c is string dateStr && DateOnly.TryParse(dateStr, out DateOnly parsedDate))
+                            prop.SetValue(obj, parsedDate, null);
+                        else if (c is long longDate)
+                            prop.SetValue(obj, DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeSeconds(longDate).LocalDateTime), null);
+                        else if (c is int intDate)
+                            prop.SetValue(obj, DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeSeconds(intDate).LocalDateTime), null);
+                        else
+                            throw new InvalidCastException($"Impossível converter {c!.GetType().Name} para DateOnly");
+                    }
+                    else if (t == typeof(TimeOnly))
+                    {
+                        if (c is TimeOnly timeOnly)
+                            prop.SetValue(obj, timeOnly, null);
+                        else if (c is TimeSpan timeSpan)
+                            prop.SetValue(obj, TimeOnly.FromTimeSpan(timeSpan), null);
+                        else if (c is DateTime timeDateTime)
+                            prop.SetValue(obj, TimeOnly.FromDateTime(timeDateTime), null);
+                        else if (c is string timeStr)
+                        {
+                            // Tenta parse direto ("HH:mm", "HH:mm:ss", "HH:mm:ss.fff")
+                            if (TimeOnly.TryParse(timeStr, out TimeOnly parsedTime))
+                                prop.SetValue(obj, parsedTime, null);
+                            // Formato gravado por CriaParameter: "0001-01-01 HH:mm:ss.fff"
+                            else if (DateTime.TryParse(timeStr, out DateTime dtFromStr))
+                                prop.SetValue(obj, TimeOnly.FromDateTime(dtFromStr), null);
+                            else
+                                throw new InvalidCastException($"Impossível converter string \"{timeStr}\" para TimeOnly");
+                        }
+                        else if (c is long longTime)
+                            prop.SetValue(obj, TimeOnly.FromTimeSpan(TimeSpan.FromSeconds(longTime)), null);
+                        else if (c is int intTime)
+                            prop.SetValue(obj, TimeOnly.FromTimeSpan(TimeSpan.FromSeconds(intTime)), null);
+                        else
+                            throw new InvalidCastException($"Impossível converter {c!.GetType().Name} para TimeOnly");
+                    }
+                    else if (t == typeof(TimeSpan))
+                    {
+                        if (c is TimeSpan timeSpan2)
+                            prop.SetValue(obj, timeSpan2, null);
+                        else if (c is string timeSpanStr)
+                        {
+                            // Tenta parse direto ("HH:mm:ss", "d.HH:mm:ss.fff")
+                            if (TimeSpan.TryParse(timeSpanStr, out TimeSpan parsedSpan))
+                                prop.SetValue(obj, parsedSpan, null);
+                            // Formato gravado por CriaParameter: "0001-01-01 HH:mm:ss.fff"
+                            else if (DateTime.TryParse(timeSpanStr, out DateTime dtFromSpanStr))
+                                prop.SetValue(obj, dtFromSpanStr.TimeOfDay, null);
+                            else
+                                throw new InvalidCastException($"Impossível converter string \"{timeSpanStr}\" para TimeSpan");
+                        }
+                        else if (c is long longSpan)
+                            prop.SetValue(obj, TimeSpan.FromSeconds(longSpan), null);
+                        else if (c is int intSpan)
+                            prop.SetValue(obj, TimeSpan.FromSeconds(intSpan), null);
+                        else
+                            throw new InvalidCastException($"Impossível converter {c!.GetType().Name} para TimeSpan");
+                    }
+                    else if (t == typeof(DateTimeOffset))
+                    {
+                        if (c is DateTimeOffset dto)
+                            prop.SetValue(obj, dto, null);
+                        else if (c is DateTime dtOffset)
+                            prop.SetValue(obj, new DateTimeOffset(dtOffset), null);
+                        else if (c is string dtoStr && DateTimeOffset.TryParse(dtoStr, out DateTimeOffset parsedDto))
+                            prop.SetValue(obj, parsedDto, null);
+                        else if (c is long longDto)
+                            prop.SetValue(obj, DateTimeOffset.FromUnixTimeSeconds(longDto).ToLocalTime(), null);
+                        else if (c is int intDto)
+                            prop.SetValue(obj, DateTimeOffset.FromUnixTimeSeconds(intDto).ToLocalTime(), null);
+                        else
+                            throw new InvalidCastException($"Impossível converter {c!.GetType().Name} para DateTimeOffset");
+                    }
+                    else if (t == typeof(DateTime))
+                    {
+                        DateTime resolved;
+                        if (c is DateTime dt)
+                            resolved = dt;
+                        else if (c is string dtStr && DateTime.TryParse(dtStr, out DateTime parsedDt))
+                            resolved = parsedDt;
+                        else if (c is long longDt)
+                            resolved = DateTimeOffset.FromUnixTimeSeconds(longDt).LocalDateTime;
+                        else if (c is int intDt)
+                            resolved = DateTimeOffset.FromUnixTimeSeconds(intDt).LocalDateTime;
+                        else
+                            throw new InvalidCastException($"Impossível converter {c!.GetType().Name} para DateTime");
+
+                        // FIX #3: conversão UTC → Local para campos de auditoria
+                        // Só converte se Kind == Utc — evita dupla conversão quando o driver já converteu
+                        if (utcDatas && common != null)
+                        {
+                            DateTime localTime = resolved.Kind == DateTimeKind.Utc
+                                ? resolved.ToLocalTime()
+                                : resolved;
+
+                            if (string.Equals(prop.Name, nameof(CommonColumns.DataInclusao), StringComparison.OrdinalIgnoreCase))
+                            {
+                                common.DataInclusao = localTime;
+                                continue;
+                            }
+                            else if (string.Equals(prop.Name, nameof(CommonColumns.DataAlteracao), StringComparison.OrdinalIgnoreCase))
+                            {
+                                common.DataAlteracao = localTime;
+                                continue;
                             }
                         }
+                        prop.SetValue(obj, resolved, null);
+                    }
+                    else
+                    {
+                        object? safeValue;
+                        // FIX #4: SQLite retorna inteiros como long; bool como 0/1
+                        if (t == typeof(int) && c is long longVal)
+                            safeValue = checked((int)longVal);
+                        else if (t == typeof(bool) && c is long boolLong)
+                            safeValue = boolLong != 0;
+                        else if (t == typeof(bool) && c is int boolInt)
+                            safeValue = boolInt != 0;
+                        else
+                            safeValue = Convert.ChangeType(c, t);
+
+                        prop.SetValue(obj, safeValue, null);
                     }
                 }
                 catch (Exception e)
@@ -212,7 +345,7 @@ namespace Yordi.EntityMultiSQL
             //INSERT INTO TABLENAME (...)
             foreach (ColumnTable col in colunas)
             {
-                // CORRE��O: incluir apenas campos edit�veis
+                // CORREÇÃO: incluir apenas campos editáveis
                 if (!BDTools.CampoEditavel(col, _bd.AllowCurrentTimeStamp)) continue;
                 //if (BDTools.CampoEditavel(col, _bd.AllowCurrentTimeStamp)) continue;
                 if (col.IsAutoIncrement && col.Tipo != Tipo.GUID) continue;
@@ -274,7 +407,7 @@ namespace Yordi.EntityMultiSQL
             {
                 if (!col.IsAutoIncrement && !col.IsKey && !col.BDIgnorar)
                 {
-                    if (col.AutoInsertDate && !col.AutoUpdateDate) // Campo de data de inser��o, n�o coloca esse campo para ser alterado em update
+                    if (col.AutoInsertDate && !col.AutoUpdateDate) // Campo de data de inserção, não coloca esse campo para ser alterado em update
                         continue;
                     else if (col.AutoUpdateDate && AllowCurrentTimeStamp)
                         continue;
@@ -307,9 +440,9 @@ namespace Yordi.EntityMultiSQL
             CheckTableName();
             ColumnTable? auto = colunas.FirstOrDefault(m => m.IsAutoIncrement);
             if (auto == null)
-                throw new ArgumentException("Objeto n�o tem autoincremento", _tableName);
+                throw new ArgumentException("Objeto não tem autoincremento", _tableName);
             if (auto.Valor is int valor && valor == 0)
-                throw new ArgumentException("Propriedade de autoincremento est� sem valor", auto.Campo);
+                throw new ArgumentException("Propriedade de autoincremento está sem valor", auto.Campo);
             StringBuilder update = new StringBuilder("UPDATE ");
             update.Append(_bd.DBConfig.OpenName);
             update.Append(_tableName);
@@ -322,7 +455,7 @@ namespace Yordi.EntityMultiSQL
             {
                 if (!col.IsAutoIncrement && !col.BDIgnorar)
                 {
-                    if (col.AutoInsertDate && !col.AutoUpdateDate) // Campo de data de inser��o, n�o coloca esse campo para ser alterado em update
+                    if (col.AutoInsertDate && !col.AutoUpdateDate) // Campo de data de inserção, não coloca esse campo para ser alterado em update
                         continue;
                     else if (col.AutoUpdateDate && AllowCurrentTimeStamp)
                         continue;
@@ -378,7 +511,7 @@ namespace Yordi.EntityMultiSQL
             {
                 if (!col.IsAutoIncrement && !col.IsKey && !col.BDIgnorar)
                 {
-                    if (col.AutoInsertDate && !col.AutoUpdateDate) // Campo de data de inser��o, n�o coloca esse campo para ser alterado em update
+                    if (col.AutoInsertDate && !col.AutoUpdateDate) // Campo de data de inserção, não coloca esse campo para ser alterado em update
                         continue;
                     else if (col.AutoUpdateDate && _bd.DBConfig.TipoDB == TipoDB.MySQL)
                         continue;
@@ -448,7 +581,7 @@ namespace Yordi.EntityMultiSQL
             CheckTableName();
             if (String.IsNullOrEmpty(_tableName))
             {
-                throw new Exception("Imposs�vel excluir - tabela n�o informada");
+                throw new Exception("Impossível excluir - tabela não informada");
             }
             StringBuilder delete = new StringBuilder("DELETE FROM ");
             delete.Append(_bd.DBConfig.OpenName);
@@ -497,9 +630,9 @@ namespace Yordi.EntityMultiSQL
 
         protected internal List<Chave> Datas(DateTime inicial, DateTime final)
         {
-            if (typeof(T).IsAssignableFrom(typeof(CommonColumns)))
+            if (!typeof(CommonColumns).IsAssignableFrom(typeof(T)))
             {
-                throw new ArgumentException("Objeto n�o tem CommonColumns", nameof(T));
+                throw new ArgumentException("Objeto não tem CommonColumns", nameof(T));
             }
             //var ini = _bd.DBConfig.TipoDB == TipoDB.SQLite ? inicial.ToUniversalTime() : inicial;
             //var fin = _bd.DBConfig.TipoDB == TipoDB.SQLite ? final.ToUniversalTime() : final;

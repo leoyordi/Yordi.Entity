@@ -134,7 +134,11 @@ namespace Yordi.EntityMultiSQL
             {
                 if (c.Valor != null)
                 {
-                    if ((DateTime)c.Valor == DateTime.MinValue)
+                    if (c.Valor is DateOnly)
+                    {
+                        // DateOnly: normalização para TEXT feita em CriaParameter — nada a fazer aqui
+                    }
+                    else if ((DateTime)c.Valor == DateTime.MinValue)
                         c.Valor = DataPadrao.MinValue;
                 }
             }
@@ -182,7 +186,9 @@ namespace Yordi.EntityMultiSQL
                         param.DbType = DbType.Guid;
                     break;
                 case Tipo.HORA:
-                    param.DbType = DbType.Time;
+                    // param.DbType = DbType.Time;
+                    // TEXT preserva segundos e milissegundos no SQLite (DbType.Time trunca para HH:mm)
+                    param.DbType = DbType.String;
                     break;
                 case Tipo.BLOB:
                     param.DbType = DbType.Binary;
@@ -193,7 +199,25 @@ namespace Yordi.EntityMultiSQL
             }
 
             object valor = info.Valor ?? DBNull.Value;
-
+            // Normalização de tipos temporais para texto ISO completo (preserva ms, compatível com SQLite)
+            if (valor != DBNull.Value)
+            {
+                if (valor is TimeSpan ts)
+                {
+                    param.DbType = DbType.String;
+                    valor = $"0001-01-01 {ts:hh\\:mm\\:ss\\.fff}";
+                }
+                else if (valor is TimeOnly to)
+                {
+                    param.DbType = DbType.String;
+                    valor = $"0001-01-01 {to:HH:mm:ss.fff}";
+                }
+                else if (valor is DateOnly donly)
+                {
+                    param.DbType = DbType.String;
+                    valor = donly.ToString("yyyy-MM-dd");
+                }
+            }
             // Normalização específica para GUID
             if (info.Tipo == Tipo.GUID && valor != DBNull.Value)
             {

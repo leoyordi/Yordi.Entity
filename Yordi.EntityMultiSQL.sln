@@ -1,20 +1,46 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.13.35806.99
+# Visual Studio Version 18
+VisualStudioVersion = 18.5.11723.231
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yordi.EntityMultiSQL", "Yordi.EntityMultiSQL\Yordi.EntityMultiSQL.csproj", "{16974125-38C5-2E41-9B5E-A0FFC760280E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisualData", "VisualData\VisualData.csproj", "{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
 		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Debug|x64.Build.0 = Debug|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Debug|x86.Build.0 = Debug|Any CPU
 		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|x64.ActiveCfg = Release|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|x64.Build.0 = Release|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|x86.ActiveCfg = Release|Any CPU
+		{16974125-38C5-2E41-9B5E-A0FFC760280E}.Release|x86.Build.0 = Release|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Debug|x64.Build.0 = Debug|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Debug|x86.Build.0 = Debug|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Release|x64.ActiveCfg = Release|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Release|x64.Build.0 = Release|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Release|x86.ActiveCfg = Release|Any CPU
+		{139A46D3-8B29-4D5A-AAE8-6D70ED8084CF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

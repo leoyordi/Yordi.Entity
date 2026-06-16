@@ -12,11 +12,26 @@
 	</Description>
 	<PackageTags>Yordi;Tools;Ferramentas;Entity;MySQL;SQLite;Index;Partial Index;Database</PackageTags>
 	<PackageId>Yordi.EntityMultiSQL</PackageId>
-	  <Version>1.2.1</Version>
+	  <Version>1.2.5</Version>
 	<Company>Yordi Sistemas Inteligentes</Company>
 	<RepositoryUrl>https://github.com/leoyordi/Yordi.Entity</RepositoryUrl>
 	<PackageReadmeFile>README.md</PackageReadmeFile>
 	<PackageReleaseNotes>
+		v1.2.5: Fix: AtualizaValor lançava InvalidCastException ao processar propriedades DateOnly (Tipo.DATA) — cast direto para DateTime substituído por guard 'is DateOnly'.
+		v1.2.4:
+		- Fix: CriaParameter agora usa DbType.String para Tipo.HORA, evitando truncamento de segundos/milissegundos causado por DbType.Time.
+		- Novo: valores TimeSpan e TimeOnly são serializados como texto ISO "0001-01-01 HH:mm:ss.fff", formato DATETIME compatível com SQLite.
+		- Novo: valores DateOnly são serializados como "yyyy-MM-dd" e forçam DbType.String, evitando conflito com DbType.DateTime atribuído via Tipo.DATA.
+		- Compatibilidade: formato ISO 8601 TEXT é lexicograficamente ordenável, não quebra tabelas existentes gravadas pelo System.Data.SQLite.
+		v1.2.3:
+		- Fix: verificação de existência da coluna no DataRow antes de acessar (evita ArgumentException silenciado).
+		- Fix: tipo valor não-anulável com valor nulo no banco mantém o default do tipo, sem tentar SetValue(null).
+		- Fix: conversão UTC→Local para campos de auditoria (DataInclusao/DataAlteracao) reativada e corrigida — respeita DateTime.Kind para evitar dupla conversão quando o driver já retorna Local.
+		- Fix: long→int com checked cast para detectar overflow de valores SQLite; bool tratado via comparação com 0/1 (padrão SQLite).
+		- Fix: condição invertida em Datas() que impedia lançar ArgumentException quando T não herdava de CommonColumns.
+		- Novo: suporte a conversão de DateOnly, TimeOnly, TimeSpan e DateTimeOffset a partir de string, DateTime, TimeSpan e valores numéricos Unix timestamp (long/int) para compatibilidade com SQLite.
+		- Novo: cache estático de PropertyInfo[] por tipo (ConcurrentDictionary) para evitar reflexão repetida em grandes volumes.
+		v1.2.2: Atualização e verificação de dependências: MySql.Data 9.7.0, SQLitePCLRaw.bundle_e_sqlite3 3.0.3, SQLitePCLRaw.core 3.0.3, System.Data.SQLite 2.0.3, Yordi.Tools 1.0.19.
 		v1.2.1: Adicionado CheckpointSQLiteAsync para checkpoint manual (sem alterar journal_mode), com orientação para uso em ciclos de serviço (OnPause/OnContinue) e manutenção da liberação forte para OnStop/OnShutdown.
 		v1.2.0: Lançamento oficial da versão 1.2.0.
 		v1.2.0-rc3: Acréscimo de recursos para lidar com 'database is locked' no SQLite.
@@ -29,11 +44,11 @@
 
 	<ItemGroup>
 	  <!--PackageReference Include="SQLite" Version="3.13.0" /-->
-	  <PackageReference Include="MySql.Data" Version="9.5.0" />
-	  <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
-	  <PackageReference Include="SQLitePCLRaw.core" Version="3.0.2" />
-	  <PackageReference Include="System.Data.SQLite" Version="2.0.2" />
-	  <PackageReference Include="Yordi.Tools" Version="1.0.18.2" />
+	  <PackageReference Include="MySql.Data" Version="9.7.0" />
+	  <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+	  <PackageReference Include="SQLitePCLRaw.core" Version="3.0.3" />
+	  <PackageReference Include="System.Data.SQLite" Version="2.0.3" />
+	  <PackageReference Include="Yordi.Tools" Version="1.0.20" />
 	  <None Include="README.md" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
