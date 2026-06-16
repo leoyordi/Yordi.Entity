@@ -12,3 +12,5 @@
 /ReleaseAndNuget.ps1
 /VisualData/bin
 /VisualData/obj
+/Yordi.EntityMultiSQL.Tests/bin
+/Yordi.EntityMultiSQL.Tests/obj

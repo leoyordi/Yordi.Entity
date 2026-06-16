@@ -28,7 +28,7 @@ namespace Yordi.EntityMultiSQL
         {
             T? result = await Insert(obj);
             if (result == null)
-                Message("Objeto não foi incluído!");
+                Message("Objeto nï¿½o foi incluï¿½do!");
             return result;
         }
 
@@ -45,8 +45,8 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Atualiza ou inclui o objeto, dependendo se ele já existe ou não. <br/>
-        /// Usa a mesma transação de banco para SELECT, INSERT e UPDATE. Caso não tenha sucesso, usa Rollback.<br/>
+        /// Atualiza ou inclui o objeto, dependendo se ele jï¿½ existe ou nï¿½o. <br/>
+        /// Usa a mesma transaï¿½ï¿½o de banco para SELECT, INSERT e UPDATE. Caso nï¿½o tenha sucesso, usa Rollback.<br/>
         /// Para incluir, o objeto deve ter o valor da propriedade com atributo AutoIncrement = 0.<br/>
         /// </summary>
         /// <param name="obj"></param>
@@ -74,7 +74,7 @@ namespace Yordi.EntityMultiSQL
                                 ok = await UpdateTransaction(conexaoSql, colunas);
                             else
                             {
-                                var e = new Exception("Mais de um item encontrado para atualizar");
+                                var e = new ConflitoException("Mais de um item encontrado para atualizar", dt.Rows.Count);
                                 StringBuilder sb = new StringBuilder();
                                 foreach (var c in colunas)
                                 {
@@ -230,7 +230,7 @@ namespace Yordi.EntityMultiSQL
                 sql = UpdateWithKeyParameters(colunas);
             else
             {
-                Error("Impossível atualizar, não há colunas de referência para a cláusula WHERE");
+                Error("Impossï¿½vel atualizar, nï¿½o hï¿½ colunas de referï¿½ncia para a clï¿½usula WHERE");
                 return false;
             }
 
@@ -272,18 +272,18 @@ namespace Yordi.EntityMultiSQL
             if (item != null)
             {
                 result = await Delete(obj);
-                Message($"{_tableName} excluídos: {result}");
+                Message($"{_tableName} excluï¿½dos: {result}");
                 return result > 0;
             }
             else
             {
-                Message($"Nenhum {_tableName} encontrado. Nada foi excluído!");
+                Message($"Nenhum {_tableName} encontrado. Nada foi excluï¿½do!");
                 return false;
             }
         }
 
         /// <summary>
-        /// Exclui os objetos informados com base na lista de parâmetros em <paramref name="where"/>
+        /// Exclui os objetos informados com base na lista de parï¿½metros em <paramref name="where"/>
         /// </summary>
         /// <param name="where"></param>
         /// <returns></returns>
@@ -345,7 +345,7 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Traz a lista inteira de elementos da tabela do objeto T e aplica a função <paramref name="where"/>
+        /// Traz a lista inteira de elementos da tabela do objeto T e aplica a funï¿½ï¿½o <paramref name="where"/>
         /// </summary>
         /// <param name="where"></param>
         /// <returns></returns>
@@ -358,10 +358,10 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Retorna uma lista de objetos de acordo com as informações passadas
+        /// Retorna uma lista de objetos de acordo com as informaï¿½ï¿½es passadas
         /// </summary>
-        /// <param name="keys">Lista de chaves para montar a cláusula WHERE</param>
-        /// <param name="ou">Informar na clausula WHERE se usa OR ou AND (padrão é AND)</param>
+        /// <param name="keys">Lista de chaves para montar a clï¿½usula WHERE</param>
+        /// <param name="ou">Informar na clausula WHERE se usa OR ou AND (padrï¿½o ï¿½ AND)</param>
         /// <returns></returns>
         public virtual async Task<IEnumerable<T>?> Lista(IEnumerable<Chave> keys, bool ou = false)
         {
@@ -408,9 +408,9 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Usa a cláusula WHERE com IN caso o array seja menor que 100.
-        /// Caso contrário, usa JOIN com tabela criada para isso (Temp_In_Use), onde os ids serão inseridos nela.
-        /// <b>Por enquanto só funciona com classes que implementaram a interface IAuto</b>
+        /// Usa a clï¿½usula WHERE com IN caso o array seja menor que 100.
+        /// Caso contrï¿½rio, usa JOIN com tabela criada para isso (Temp_In_Use), onde os ids serï¿½o inseridos nela.
+        /// <b>Por enquanto sï¿½ funciona com classes que implementaram a interface IAuto</b>
         /// </summary>
         /// <param name="ids"></param>
         /// <returns></returns>
@@ -423,7 +423,7 @@ namespace Yordi.EntityMultiSQL
             }
             if (!typeof(IAuto).IsAssignableFrom(typeof(T)))
             {
-                Message("Não implementa IAuto.");
+                Message("Nï¿½o implementa IAuto.");
                 return null;
             }
 
@@ -473,7 +473,7 @@ namespace Yordi.EntityMultiSQL
                 {
                     if (conexaoSql == null || !IsConnected().Result)
                     {
-                        Message("Sem conexão com banco ou arquivo de dados");
+                        Message("Sem conexï¿½o com banco ou arquivo de dados");
                         return default;
                     }
                     using (DbCommand cmm = conexaoSql.CreateCommand())
@@ -494,12 +494,12 @@ namespace Yordi.EntityMultiSQL
 
 
         /// <summary>
-        /// Usa a cláusula WHERE com IN caso o array seja menor que 100.<br/>
-        /// Caso contrário, usa JOIN com tabela criada para isso (Temp_In_Use), onde os ids serão inseridos nela.<br/>
-        /// <b>O campo de busca será o informado no parâmetro <paramref name="campoUnico"/></b>
+        /// Usa a clï¿½usula WHERE com IN caso o array seja menor que 100.<br/>
+        /// Caso contrï¿½rio, usa JOIN com tabela criada para isso (Temp_In_Use), onde os ids serï¿½o inseridos nela.<br/>
+        /// <b>O campo de busca serï¿½ o informado no parï¿½metro <paramref name="campoUnico"/></b>
         /// </summary>
         /// <param name="ids"></param>
-        /// <param name="campoUnico">Campo a ser usado do lado esquerdo da operação.<br/>
+        /// <param name="campoUnico">Campo a ser usado do lado esquerdo da operaï¿½ï¿½o.<br/>
         /// <code><paramref name="campoUnico"/> IN (ids1, ids2, ...)</code>
         /// ou
         /// <code> INNER JOIN Temp_In_Use U WHERE T.<paramref name="campoUnico"/> = U.ID</code></param>
@@ -513,7 +513,7 @@ namespace Yordi.EntityMultiSQL
             }
             if (typeof(T).GetProperty(campoUnico) == null)
             {
-                Message($"Não tem o campo {campoUnico}");
+                Message($"Nï¿½o tem o campo {campoUnico}");
                 return null;
             }
 
@@ -564,7 +564,7 @@ namespace Yordi.EntityMultiSQL
                 {
                     if (conexaoSql == null || !IsConnected().Result)
                     {
-                        Message("Sem conexão com banco ou arquivo de dados");
+                        Message("Sem conexï¿½o com banco ou arquivo de dados");
                         return default;
                     }
                     using (DbCommand cmm = conexaoSql.CreateCommand())
@@ -583,10 +583,10 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Retorna uma lista de objetos de acordo com a instrução SQL passada
+        /// Retorna uma lista de objetos de acordo com a instruï¿½ï¿½o SQL passada
         /// </summary>
         /// <param name="sql"></param>
-        /// <param name="parametros">Se quiser usar DbParameters ou quiser que a cláusula where seja preenchida por essa lista</param>
+        /// <param name="parametros">Se quiser usar DbParameters ou quiser que a clï¿½usula where seja preenchida por essa lista</param>
         /// <param name="ou"></param>
         /// <returns></returns>
         protected virtual async Task<IEnumerable<T>?> ListaByTSQL(string sql, IEnumerable<Chave>? parametros = null, bool? ou = null)
@@ -628,9 +628,9 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Construtor de instrução SQL SELECT. A cláusula WHERE é preenchida de acordo com o objeto IEnumerable<Chave>
+        /// Construtor de instruï¿½ï¿½o SQL SELECT. A clï¿½usula WHERE ï¿½ preenchida de acordo com o objeto IEnumerable<Chave>
         /// </summary>
-        /// <param name="campos">Objeto IEnumerable<Chave>. Quando for STRING, a cláusula WHERE terá o termo LIKE</param>
+        /// <param name="campos">Objeto IEnumerable<Chave>. Quando for STRING, a clï¿½usula WHERE terï¿½ o termo LIKE</param>
         /// <returns></returns>
         protected virtual async Task<IEnumerable<T>?> ProcuraPor(IEnumerable<Chave> campos)
         {
@@ -776,7 +776,7 @@ namespace Yordi.EntityMultiSQL
             if (dt == null)
             {
                 ce.Data.Add("Objeto", typeof(T).Name);
-                ce.Data.Add("DataTable", "Não foi possível rastrear erros. DataTable é nulo aqui.");
+                ce.Data.Add("DataTable", "Nï¿½o foi possï¿½vel rastrear erros. DataTable ï¿½ nulo aqui.");
                 Error(ce);
                 return;
             }
@@ -840,7 +840,7 @@ namespace Yordi.EntityMultiSQL
         /// <summary>
         /// Procura o objeto de acordo com o informado no objeto 'where'
         /// </summary>
-        /// <param name="where">Lista de Objeto Chave, que será usado na cláusula WHERE com parâmetros</param>
+        /// <param name="where">Lista de Objeto Chave, que serï¿½ usado na clï¿½usula WHERE com parï¿½metros</param>
         /// <returns></returns>
         protected virtual async Task<T?> Item(IEnumerable<Chave> where)
         {
@@ -880,7 +880,7 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Procura o objeto pelo código de autoincremento
+        /// Procura o objeto pelo cï¿½digo de autoincremento
         /// </summary>
         /// <param name="autoIncrementValue"></param>
         /// <returns></returns>
@@ -930,7 +930,7 @@ namespace Yordi.EntityMultiSQL
         /// Insere o objeto.
         /// </summary>
         /// <param name="obj"></param>
-        /// <returns>Objeto com o novo código de autoincremento</returns>
+        /// <returns>Objeto com o novo cï¿½digo de autoincremento</returns>
         private async Task<T?> Insert(T obj)
         {
             return await ExecuteFullWriteAsync(async () =>
@@ -954,9 +954,9 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Atualiza objeto original com dados de salvamento, como datas de inserção e atualização,
-        /// usuários de inserção e atualização, origem do comando, e valor de autoincremento.<br/>
-        /// Tento retornar com o objeto original atualizado, pois pode ter propriedades que não são salvas em banco
+        /// Atualiza objeto original com dados de salvamento, como datas de inserï¿½ï¿½o e atualizaï¿½ï¿½o,
+        /// usuï¿½rios de inserï¿½ï¿½o e atualizaï¿½ï¿½o, origem do comando, e valor de autoincremento.<br/>
+        /// Tento retornar com o objeto original atualizado, pois pode ter propriedades que nï¿½o sï¿½o salvas em banco
         /// e voltariam nulas se usasse apenas o resultado do banco
         /// </summary>
         /// <param name="obj"></param>
@@ -984,7 +984,7 @@ namespace Yordi.EntityMultiSQL
 
 
         /// <summary>
-        /// Incluir lista de objetos com a mesma conexão de banco
+        /// Incluir lista de objetos com a mesma conexï¿½o de banco
         /// </summary>
         /// <param name="lista">Lista de objetos</param>
         /// <returns></returns>
@@ -1186,7 +1186,7 @@ namespace Yordi.EntityMultiSQL
             {
                 Error(e);
             }
-            Message($"Incluídos: {ts.Count}");
+            Message($"Incluï¿½dos: {ts.Count}");
             return ts;
         }
 
@@ -1211,7 +1211,7 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Atualiza uma lista de objetos com base em atributos de chave primária ou autoincremento.
+        /// Atualiza uma lista de objetos com base em atributos de chave primï¿½ria ou autoincremento.
         /// </summary>
         /// <param name="lista"></param>
         /// <returns></returns>
@@ -1286,7 +1286,7 @@ namespace Yordi.EntityMultiSQL
                     sql = UpdateWithKeyParameters(obj);
                 else
                 {
-                    Error("Impossível atualizar, não há colunas de referência para a cláusula WHERE");
+                    Error("Impossï¿½vel atualizar, nï¿½o hï¿½ colunas de referï¿½ncia para a clï¿½usula WHERE");
                     return (IEnumerable<T>?)null;
                 }
 
@@ -1362,7 +1362,7 @@ namespace Yordi.EntityMultiSQL
 
 
         /// <summary>
-        /// Somente em MySQL e SQLite. Usa a cláusula ON DUPLICATE KEY UPDATE
+        /// Somente em MySQL e SQLite. Usa a clï¿½usula ON DUPLICATE KEY UPDATE
         /// </summary>
         /// <param name="lista"></param>
         /// <param name="dispararEventoProgresso"></param>
@@ -1372,7 +1372,7 @@ namespace Yordi.EntityMultiSQL
         {
             if (_bd.TipoDB == TipoDB.NONE)
             {
-                Message("MySQL, SQLite, Postgrees aceita a ação Update On Duplicate Key");
+                Message("MySQL, SQLite, Postgrees aceita a aï¿½ï¿½o Update On Duplicate Key");
                 return null;
             }
             else if (lista == null)
@@ -1439,7 +1439,7 @@ namespace Yordi.EntityMultiSQL
                         sql.Append(UpdateOnDuplicateKey(item1));
                     }
                     else
-                        throw new ArgumentException("Não é possível fazer Update On Duplicate Key sem Key", typeof(T).Name);
+                        throw new ArgumentException("Nï¿½o ï¿½ possï¿½vel fazer Update On Duplicate Key sem Key", typeof(T).Name);
 
                     using (DbConnection conexaoSql = await _bd.ObterConexaoAsync())
                     {
@@ -1557,7 +1557,7 @@ namespace Yordi.EntityMultiSQL
 
 
         /// <summary>
-        /// Insere ou atualiza o objeto. Testado em MySQL e SQLite. Usa a instrução ON DUPLICATE KEY UPDATE.
+        /// Insere ou atualiza o objeto. Testado em MySQL e SQLite. Usa a instruï¿½ï¿½o ON DUPLICATE KEY UPDATE.
         /// </summary>
         /// <param name="obj"></param>
         /// <returns></returns>
@@ -1565,7 +1565,7 @@ namespace Yordi.EntityMultiSQL
         {
             if (_bd.TipoDB == TipoDB.NONE)
             {
-                Message("MySQL, SQLite, Postgrees aceita a ação Update On Duplicate Key");
+                Message("MySQL, SQLite, Postgrees aceita a aï¿½ï¿½o Update On Duplicate Key");
                 return null;
             }
             if (obj is ICommonColumns objD)
@@ -1649,7 +1649,7 @@ namespace Yordi.EntityMultiSQL
                 finally
                 {
                     if (Verbose)
-                        Message($"Incluído/Alterado [Retorno: {resultado}]: {obj}");
+                        Message($"Incluï¿½do/Alterado [Retorno: {resultado}]: {obj}");
                 }
             });
         }
@@ -1677,7 +1677,7 @@ namespace Yordi.EntityMultiSQL
             }, sql, colunas);
 
             if (Verbose && resultado > 0)
-                Message($"Excluído: {obj} - {resultado} linha(s) afetada(s)");
+                Message($"Excluï¿½do: {obj} - {resultado} linha(s) afetada(s)");
             Rows(resultado);
             return resultado;
         }
@@ -1717,7 +1717,7 @@ namespace Yordi.EntityMultiSQL
                     }
                 }
                 if (Verbose)
-                    Message($"Excluídos: {lista.Count()} - {rowAffected} linha(s) afetada(s) em {_tableName}");
+                    Message($"Excluï¿½dos: {lista.Count()} - {rowAffected} linha(s) afetada(s) em {_tableName}");
                 return rowAffected;
             });
 
@@ -1743,15 +1743,15 @@ namespace Yordi.EntityMultiSQL
             {
                 Error(e.Message);
             }
-            Message($"Excluídos: {ret}");
+            Message($"Excluï¿½dos: {ret}");
             return ret;
         }
 
 
 
         /// <summary>
-        /// Para instruções UPDATE, INSERT e DELETE, o valor de retorno é o número de linhas afetadas pelo comando. 
-        /// Para todos os outros tipos de declarações, o valor retornado é -1.
+        /// Para instruï¿½ï¿½es UPDATE, INSERT e DELETE, o valor de retorno ï¿½ o nï¿½mero de linhas afetadas pelo comando. 
+        /// Para todos os outros tipos de declaraï¿½ï¿½es, o valor retornado ï¿½ -1.
         /// </summary>
         /// <param name="camposParaWhere"></param>
         /// <returns></returns>
@@ -1759,14 +1759,14 @@ namespace Yordi.EntityMultiSQL
         {
             if (camposParaWhere == null || !camposParaWhere.Any())
             {
-                Message("Impossível excluir, faltam dados.");
+                Message("Impossï¿½vel excluir, faltam dados.");
                 return -1;
             }
 
             string sql = DeleteWithWhereParameters(camposParaWhere);
             if (String.IsNullOrEmpty(sql))
             {
-                Message("Impossível excluir, faltam dados.");
+                Message("Impossï¿½vel excluir, faltam dados.");
                 return -1;
             }
 
@@ -1787,9 +1787,9 @@ namespace Yordi.EntityMultiSQL
             }, sql, camposParaWhere);
 
             if (Verbose)
-                Message($"Excluídos: {camposParaWhere.Count()} - {resultado} linha(s) afetada(s) em {_tableName}");
+                Message($"Excluï¿½dos: {camposParaWhere.Count()} - {resultado} linha(s) afetada(s) em {_tableName}");
             Rows(resultado);
-            Message($"Excluídos: {resultado}");
+            Message($"Excluï¿½dos: {resultado}");
             return resultado;
         }
 
@@ -1851,14 +1851,14 @@ namespace Yordi.EntityMultiSQL
         private const int MaxRetryAttempts = 3;
 
         /// <summary>
-        /// Executa uma operação de escrita no SQLite com lock exclusivo e retry automático.
+        /// Executa uma operaï¿½ï¿½o de escrita no SQLite com lock exclusivo e retry automï¿½tico.
         /// Para MySQL e outros bancos, executa diretamente sem lock.
         /// </summary>
-        /// <param name="writeOperation">Operação de escrita a ser executada</param>
+        /// <param name="writeOperation">Operaï¿½ï¿½o de escrita a ser executada</param>
         /// <param name="sql">SQL para log de erro</param>
         /// <param name="colunas">Colunas para log de erro</param>
         /// <param name="cancellationToken">Token de cancelamento</param>
-        /// <returns>Número de linhas afetadas</returns>
+        /// <returns>Nï¿½mero de linhas afetadas</returns>
         private async Task<int> ExecuteWriteAsync(
             Func<Task<int>> writeOperation,
             string sql,
@@ -1884,7 +1884,7 @@ namespace Yordi.EntityMultiSQL
                 lockObtido = await _bd.AguardarLockEscritaAsync(cancellationToken);
                 if (!lockObtido)
                 {
-                    Message($"Timeout ou cancelamento ao aguardar lock de escrita para {_tableName}");
+                    Error(new BloqueioException($"Timeout ao aguardar lock de escrita para {_tableName}"));
                     return 0;
                 }
 
@@ -1901,7 +1901,7 @@ namespace Yordi.EntityMultiSQL
             }
             catch (OperationCanceledException)
             {
-                Message($"Operação de escrita cancelada em {_tableName}");
+                Message($"Operaï¿½ï¿½o de escrita cancelada em {_tableName}");
                 return 0;
             }
             catch (Exception e)
@@ -1917,7 +1917,7 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Sobrecarga para parâmetros do tipo Chave
+        /// Sobrecarga para parï¿½metros do tipo Chave
         /// </summary>
         private async Task<int> ExecuteWriteAsync(
             Func<Task<int>> writeOperation,
@@ -1944,7 +1944,7 @@ namespace Yordi.EntityMultiSQL
                 lockObtido = await _bd.AguardarLockEscritaAsync(cancellationToken);
                 if (!lockObtido)
                 {
-                    Message($"Timeout ou cancelamento ao aguardar lock de escrita para {_tableName}");
+                    Error(new BloqueioException($"Timeout ao aguardar lock de escrita para {_tableName}"));
                     return 0;
                 }
 
@@ -1961,7 +1961,7 @@ namespace Yordi.EntityMultiSQL
             }
             catch (OperationCanceledException)
             {
-                Message($"Operação de escrita cancelada em {_tableName}");
+                Message($"Operaï¿½ï¿½o de escrita cancelada em {_tableName}");
                 return 0;
             }
             catch (Exception e)
@@ -1977,13 +1977,13 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Executa uma operação completa de escrita (conexão + transação + execução)
+        /// Executa uma operaï¿½ï¿½o completa de escrita (conexï¿½o + transaï¿½ï¿½o + execuï¿½ï¿½o)
         /// dentro do lock exclusivo do SQLite.
         /// </summary>
         /// <typeparam name="TResult">Tipo do resultado</typeparam>
-        /// <param name="writeOperation">Operação completa incluindo conexão</param>
+        /// <param name="writeOperation">Operaï¿½ï¿½o completa incluindo conexï¿½o</param>
         /// <param name="cancellationToken">Token de cancelamento</param>
-        /// <returns>Resultado da operação</returns>
+        /// <returns>Resultado da operaï¿½ï¿½o</returns>
         private async Task<TResult?> ExecuteFullWriteAsync<TResult>(
             Func<Task<TResult?>> writeOperation,
             CancellationToken cancellationToken = default)
@@ -1997,7 +1997,7 @@ namespace Yordi.EntityMultiSQL
                 lockObtido = await _bd.AguardarLockEscritaAsync(cancellationToken);
                 if (!lockObtido)
                 {
-                    Message($"Timeout ou cancelamento ao aguardar lock de escrita para {_tableName}");
+                    Error(new BloqueioException($"Timeout ao aguardar lock de escrita para {_tableName}"));
                     return default;
                 }
 
@@ -2005,7 +2005,7 @@ namespace Yordi.EntityMultiSQL
             }
             catch (OperationCanceledException)
             {
-                Message($"Operação de escrita cancelada em {_tableName}");
+                Message($"Operaï¿½ï¿½o de escrita cancelada em {_tableName}");
                 return default;
             }
             finally
@@ -2016,7 +2016,7 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>
-        /// Tenta liberar locks e repetir operação (controle de recursão)
+        /// Tenta liberar locks e repetir operaï¿½ï¿½o (controle de recursï¿½o)
         /// </summary>
         private async Task<bool> TentarLiberarERepetirAsync()
         {
@@ -2049,7 +2049,7 @@ namespace Yordi.EntityMultiSQL
         ///// </summary>
 
         ///// <summary>
-        ///// Executa operação com retry automático para SQLite em caso de database locked
+        ///// Executa operaï¿½ï¿½o com retry automï¿½tico para SQLite em caso de database locked
         ///// </summary>
         //private async Task<int> ExecuteWithSQLiteRetryAsync(
         //    Func<Task<int>> operation,
@@ -2071,7 +2071,7 @@ namespace Yordi.EntityMultiSQL
         //}
 
         ///// <summary>
-        ///// Executa operação com retry automático para SQLite em caso de database locked
+        ///// Executa operaï¿½ï¿½o com retry automï¿½tico para SQLite em caso de database locked
         ///// </summary>
         //private async Task<int> ExecuteWithSQLiteRetryAsync(
         //    Func<Task<int>> operation,
@@ -2093,7 +2093,7 @@ namespace Yordi.EntityMultiSQL
         //}
 
         ///// <summary>
-        ///// Tenta liberar locks e repetir operação (controle de recursão)
+        ///// Tenta liberar locks e repetir operaï¿½ï¿½o (controle de recursï¿½o)
         ///// </summary>
         //private async Task<bool> TentarLiberarERepetirAsync()
         //{
@@ -2108,10 +2108,10 @@ namespace Yordi.EntityMultiSQL
         //    if (Verbose)
         //        Message($"Tentando liberar locks do SQLite (tentativa {_retryCount}/{MaxRetryAttempts})...");
 
-        //    // Limpa pools e força GC
+        //    // Limpa pools e forï¿½a GC
         //    SQLiteRetryHelper.LimparPoolsConexao();
 
-        //    // Tenta liberar via conexão
+        //    // Tenta liberar via conexï¿½o
         //    await _bd.LiberarLocksSQLiteAsync();
 
         //    // Aguarda um pouco antes de tentar novamente
