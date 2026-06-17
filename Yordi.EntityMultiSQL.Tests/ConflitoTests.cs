@@ -44,7 +44,7 @@ namespace Yordi.EntityMultiSQL.Tests
             await ExecutarAsync(conn, "DELETE FROM ItemConflito;");
             await ExecutarAsync(conn, "INSERT INTO ItemConflito (Codigo, Nome) VALUES (1, 'A'), (1, 'B');");
 
-            var repo = new RepositorioResult<ItemConflito>(new RepositorioGenerico<ItemConflito>(conexao));
+            var repo = new RepositorioResult<ItemConflito>(conexao);
 
             // Act: o WHERE (Codigo = 1) casa dois registros → conflito
             var resultado = await repo.AtualizarOuIncluir(new ItemConflito { Codigo = 1, Nome = "C" });

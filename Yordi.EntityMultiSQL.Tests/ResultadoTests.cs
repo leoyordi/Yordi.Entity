@@ -6,21 +6,23 @@ using Xunit;
 namespace Yordi.EntityMultiSQL.Tests
 {
     /// <summary>
-    /// Repositório de teste que sobrescreve <see cref="RepositorioAsyncAbstract{T}.Atualizar(T)"/>
-    /// para simular o desfecho da base sem tocar no banco: opcionalmente registra um erro
-    /// (como a base faz em timeout de lock / "database is locked") e devolve null.
+    /// Repositório de teste que exercita o motor de classificação (<c>Executar</c>) sem tocar no
+    /// banco: registra opcionalmente um erro (como a base faz em timeout de lock / "database is
+    /// locked") e devolve null — o desfecho resultante é o que o <see cref="RepositorioResult{T}"/>
+    /// produziria para qualquer operação.
     /// </summary>
-    public class RepoSimulado : RepositorioAsyncAbstract<ItemConflito>
+    public class RepoSimulado : RepositorioResult<ItemConflito>
     {
-        private readonly Exception? _erroAoAtualizar;
-        public RepoSimulado(IBDConexao bd, Exception? erroAoAtualizar) : base(bd)
-            => _erroAoAtualizar = erroAoAtualizar;
+        public RepoSimulado(IBDConexao bd) : base(bd) { }
 
-        public override Task<ItemConflito?> Atualizar(ItemConflito obj)
+        public Task<Result<ItemConflito>> SimularAtualizar(Exception? erro)
         {
-            if (_erroAoAtualizar != null)
-                Error(_erroAoAtualizar);   // mesmo caminho da base: dispara ExceptionEvent, retorna null
-            return Task.FromResult<ItemConflito?>(null);
+            Func<Task<ItemConflito?>> op = () =>
+            {
+                if (erro != null) Error(erro);   // dispara ExceptionEvent, como a base
+                return Task.FromResult<ItemConflito?>(null);
+            };
+            return Executar(op, DeObjeto);
         }
     }
 
@@ -33,10 +35,9 @@ namespace Yordi.EntityMultiSQL.Tests
         {
             using var conexao = NovaConexaoTemp();
             // Parte 2: timeout do lock é sinalizado por BloqueioException
-            var repo = new RepositorioResult<ItemConflito>(
-                new RepoSimulado(conexao, new BloqueioException("Timeout ao aguardar lock de escrita")));
+            var repo = new RepoSimulado(conexao);
 
-            var r = await repo.Atualizar(new ItemConflito { Codigo = 1 });
+            var r = await repo.SimularAtualizar(new BloqueioException("Timeout ao aguardar lock de escrita"));
 
             Assert.Equal(StatusOperacao.Bloqueado, r.Status);
             Assert.True(r.Bloqueou);
@@ -49,10 +50,9 @@ namespace Yordi.EntityMultiSQL.Tests
         {
             using var conexao = NovaConexaoTemp();
             // Parte 1: "database is locked" reconhecido por SQLiteRetryHelper.IsDatabaseLocked
-            var repo = new RepositorioResult<ItemConflito>(
-                new RepoSimulado(conexao, new Exception("SQL logic error - database is locked")));
+            var repo = new RepoSimulado(conexao);
 
-            var r = await repo.Atualizar(new ItemConflito { Codigo = 1 });
+            var r = await repo.SimularAtualizar(new Exception("SQL logic error - database is locked"));
 
             Assert.Equal(StatusOperacao.Bloqueado, r.Status);
             Assert.True(r.Bloqueou);
@@ -62,10 +62,9 @@ namespace Yordi.EntityMultiSQL.Tests
         public async Task Atualizar_QuandoErroComum_RetornaErroEnaoBloqueado()
         {
             using var conexao = NovaConexaoTemp();
-            var repo = new RepositorioResult<ItemConflito>(
-                new RepoSimulado(conexao, new Exception("UNIQUE constraint failed")));
+            var repo = new RepoSimulado(conexao);
 
-            var r = await repo.Atualizar(new ItemConflito { Codigo = 1 });
+            var r = await repo.SimularAtualizar(new Exception("UNIQUE constraint failed"));
 
             Assert.Equal(StatusOperacao.Erro, r.Status);
             Assert.True(r.Falhou);
@@ -81,7 +80,7 @@ namespace Yordi.EntityMultiSQL.Tests
             using var conexao = NovaConexaoTemp();
             await PrepararTabelaComUmRegistro(conexao);
 
-            var repo = new RepositorioResult<ItemConflito>(new RepositorioGenerico<ItemConflito>(conexao));
+            var repo = new RepositorioResult<ItemConflito>(conexao);
             var r = await repo.Item(new ItemConflito { Codigo = 10 });
 
             Assert.Equal(StatusOperacao.Sucesso, r.Status);
@@ -96,7 +95,7 @@ namespace Yordi.EntityMultiSQL.Tests
             using var conexao = NovaConexaoTemp();
             await PrepararTabelaComUmRegistro(conexao);
 
-            var repo = new RepositorioResult<ItemConflito>(new RepositorioGenerico<ItemConflito>(conexao));
+            var repo = new RepositorioResult<ItemConflito>(conexao);
             var r = await repo.Item(new ItemConflito { Codigo = 999 });
 
             Assert.Equal(StatusOperacao.NaoEncontrado, r.Status);

@@ -131,7 +131,7 @@ public class MinhaEntidade
 
 Os métodos do repositório retornam `Task<T?>`, `bool` ou `int`. Esse retorno "cru" não distingue, por exemplo, *"não encontrei"* de *"deu erro"*, nem *"0 linhas afetadas"* de *"falha"* — a informação ficava apenas no campo `Mensagem` (compartilhado e sujeito a corrida em uso concorrente).
 
-`RepositorioResult<T>` é um *decorator* que envolve qualquer `RepositorioAsyncAbstract<T>` e traduz cada operação em um `Result<T>` explícito, capturando erros pelos eventos da instância (sem parsing de string).
+`RepositorioResult<T>` é uma **classe-base** que herda de `RepositorioAsyncAbstract<T>` e **oculta** (via `new`) os métodos públicos de dados, trocando o retorno cru (`Task<T?>` / `bool` / `int`) por um `Result<T>` explícito. Toda a lógica de SQL permanece na base; aqui só há a tradução do desfecho, capturando erros pelos eventos da instância (sem parsing de string). Use instanciando-a diretamente ou herdando dela.
 
 ### Status possíveis (`StatusOperacao`)
 
@@ -146,7 +146,7 @@ Os métodos do repositório retornam `Task<T?>`, `bool` ou `int`. Esse retorno "
 ### Uso
 
 ```csharp
-var repo = new RepositorioResult<MinhaEntidade>(new MeuRepositorio(conexao));
+var repo = new RepositorioResult<MinhaEntidade>(conexao);
 
 var r = await repo.Item(new MinhaEntidade { Codigo = "ABC" });
 switch (r.Status)
@@ -163,9 +163,24 @@ switch (r.Status)
 
 Em `Conflito`, `r.LinhasAfetadas` traz a quantidade de registros que casaram o critério. Em falhas, `r.Erro` preserva o contexto de diagnóstico (SQL e parâmetros em `Exception.Data`).
 
-> **Concorrência:** o decorator captura erros assinando os eventos da instância **durante** a chamada. Use uma instância por operação lógica (o tempo de vida *transient*/*scoped* normal de um repositório); não compartilhe a mesma instância entre operações concorrentes.
+> **Concorrência:** a captura de erro assina os eventos da instância **durante** a chamada. Use uma instância por operação lógica (o tempo de vida *transient*/*scoped* normal de um repositório); não compartilhe a mesma instância entre operações concorrentes.
 
-A API existente (`Task<T?>` / `bool` / `int`) permanece inalterada — a adoção do `Result<T>` é incremental.
+A API "crua" (`RepositorioAsyncAbstract<T>` / `RepositorioGenerico<T>`) permanece inalterada — quem quiser o retorno encapsulado usa as classes `*Result`. A adoção é incremental.
+
+### Herdeiros especializados
+
+`RepositorioGenericoResult<T>` é o equivalente encapsulado de `RepositorioGenerico<T>`: mesmos atalhos (`Lista(string)`, `PorAutoMinMax`), agora retornando `Result<T>`.
+
+```csharp
+public class ClienteRepo : RepositorioGenericoResult<Cliente>
+{
+    public ClienteRepo(IBDConexao bd) : base(bd) { }
+}
+
+Result<IEnumerable<Cliente>> r = await new ClienteRepo(conexao).Lista("silva");
+```
+
+> **Caveat do `new` hiding:** a ocultação não é polimórfica. Se você segurar a instância por uma referência do tipo `RepositorioAsyncAbstract<T>`, chama as versões cruas; pelo tipo concreto (ou `RepositorioResult<T>`), vem `Result<T>`. Repositórios devem *adicionar* métodos, não sobrescrever o CRUD.
 
 ---
 
@@ -216,7 +231,8 @@ await conexao.DisposeAsync();
 
 - **1.3.0**
   - **Novo:** resultado encapsulado `Result<T>` + `StatusOperacao` (`Sucesso`, `NaoEncontrado`, `Conflito`, `Bloqueado`, `Erro`) — elimina a ambiguidade de `null`/`false`/`0` e a corrida do campo `Mensagem` compartilhado
-  - **Novo:** `RepositorioResult<T>` — *decorator* sobre `RepositorioAsyncAbstract` que traduz cada operação em `Result<T>`, capturando erros pelos eventos (sem parsing de string)
+  - **Novo:** `RepositorioResult<T>` — classe-base que herda de `RepositorioAsyncAbstract` e oculta (via `new`) os métodos públicos, retornando sempre `Result<T>`; o SQL permanece único na base
+  - **Novo:** `RepositorioGenericoResult<T>` — equivalente encapsulado de `RepositorioGenerico<T>` (atalhos `Lista(string)`/`PorAutoMinMax` retornando `Result<T>`)
   - **Novo:** `ConflitoException` (`AtualizarOuIncluir` com `WHERE` ambíguo) e `BloqueioException` (timeout de lock), classificadas como `Conflito`/`Bloqueado`; `database is locked` do SQLite também é reconhecido como `Bloqueado`, permitindo retry
   - **Novo:** projeto de testes xUnit `Yordi.EntityMultiSQL.Tests` (cobre `Conflito`, `Bloqueado`, `Erro`, `Sucesso` e `NaoEncontrado`)
   - **Mudança de comportamento:** timeout de lock agora dispara `ExceptionEvent` (antes `MessageEvent`); a API existente permanece compatível
