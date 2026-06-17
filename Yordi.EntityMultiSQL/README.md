@@ -180,7 +180,28 @@ public class ClienteRepo : RepositorioGenericoResult<Cliente>
 Result<IEnumerable<Cliente>> r = await new ClienteRepo(conexao).Lista("silva");
 ```
 
-> **Caveat do `new` hiding:** a ocultação não é polimórfica. Se você segurar a instância por uma referência do tipo `RepositorioAsyncAbstract<T>`, chama as versões cruas; pelo tipo concreto (ou `RepositorioResult<T>`), vem `Result<T>`. Repositórios devem *adicionar* métodos, não sobrescrever o CRUD.
+### Sobrescrevendo para tratar entidades estrangeiras
+
+Os métodos `Result<T>` são **`virtual`**. Para orquestrar filhos/chaves estrangeiras, sobrescreva o método e chame `base.Método` (que executa o CRUD encapsulado da base), tratando as entidades relacionadas com outro repositório:
+
+```csharp
+public class PedidoRepo : RepositorioResult<Pedido>
+{
+    private readonly RepositorioResult<ItemPedido> _itens;
+    public PedidoRepo(IBDConexao bd) : base(bd) => _itens = new RepositorioResult<ItemPedido>(bd);
+
+    public override async Task<Result<Pedido>> Atualizar(Pedido p)
+    {
+        var r = await base.Atualizar(p);               // SQL do pai (encapsulado)
+        if (r.Sucesso)
+            foreach (var item in p.Itens)
+                await _itens.Atualizar(item);          // trata filhos/FK com outro repositório
+        return r;
+    }
+}
+```
+
+> **Caveat do `new` hiding:** sobrescreva os métodos `Result<T>` (virtuais) — **não** os métodos crus de `RepositorioAsyncAbstract<T>`. Como `base.X` resolve estaticamente para a base, um override do método cru não seria visto pelo caminho `Result<T>`. Por uma referência do tipo cru chamam-se as versões cruas; pelo tipo concreto (ou `RepositorioResult<T>`), as encapsuladas.
 
 ---
 

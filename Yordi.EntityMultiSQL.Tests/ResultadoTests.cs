@@ -26,8 +26,36 @@ namespace Yordi.EntityMultiSQL.Tests
         }
     }
 
+    /// <summary>
+    /// Simula o cliente que sobrescreve um método público (agora virtual) para tratar
+    /// entidades estrangeiras, chamando base.Método.
+    /// </summary>
+    public class RepoComOverride : RepositorioResult<ItemConflito>
+    {
+        public bool OverrideChamado { get; private set; }
+        public RepoComOverride(IBDConexao bd) : base(bd) { }
+
+        public override Task<Result<ItemConflito>> Item(ItemConflito obj)
+        {
+            OverrideChamado = true;
+            return base.Item(obj);
+        }
+    }
+
     public class ResultadoTests
     {
+        [Fact]
+        public async Task MetodosPublicos_SaoVirtuais_OverrideEhChamadoPolimorficamente()
+        {
+            using var conexao = NovaConexaoTemp();
+            // referência pelo tipo BASE — se o método não fosse virtual, chamaria a versão da base
+            RepositorioResult<ItemConflito> repo = new RepoComOverride(conexao);
+
+            await repo.Item(new ItemConflito { Codigo = 1 });
+
+            Assert.True(((RepoComOverride)repo).OverrideChamado);
+        }
+
         // ── Bloqueado ─────────────────────────────────────────────────────────
 
         [Fact]

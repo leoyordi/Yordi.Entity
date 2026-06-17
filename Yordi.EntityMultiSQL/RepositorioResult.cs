@@ -11,12 +11,18 @@ namespace Yordi.EntityMultiSQL
     /// tradução do desfecho, capturando erros pelos eventos da instância (sem parsing de string).
     /// </para>
     /// <para>
-    /// <b>Caveat do <c>new</c> hiding:</b> a ocultação não é polimórfica e <c>base.X</c> é resolvido
-    /// estaticamente para <see cref="RepositorioAsyncAbstract{T}"/>. Se um herdeiro sobrescrever
-    /// (override) um método cru, a versão <see cref="Result{T}"/> <b>não</b> enxergará o override —
-    /// chamará sempre a implementação da base. Repositórios devem <i>adicionar</i> métodos, não
-    /// sobrescrever o CRUD. As chamadas internas da base (ex.: <c>Excluir(T)</c> usando <c>Item</c>)
-    /// continuam usando as versões cruas — não há embrulho duplo.
+    /// <b>Métodos virtuais:</b> os métodos <see cref="Result{T}"/> são <c>virtual</c> — herdeiros
+    /// podem sobrescrevê-los (ex.: para tratar entidades estrangeiras/filhos) e chamar
+    /// <c>base.Método</c>, que executa a implementação encapsulada desta classe.
+    /// </para>
+    /// <para>
+    /// <b>Caveat do <c>new</c> hiding:</b> a ocultação não é polimórfica entre as duas famílias de
+    /// métodos. Sobrescreva os métodos <see cref="Result{T}"/> (virtuais) — <b>não</b> os métodos
+    /// crus de <see cref="RepositorioAsyncAbstract{T}"/>: como <c>base.X</c> aqui resolve
+    /// estaticamente para a base, um override do método cru não seria visto pelo caminho
+    /// <see cref="Result{T}"/>. Por uma referência do tipo cru chamam-se as versões cruas; pelo tipo
+    /// concreto/<see cref="RepositorioResult{T}"/>, as encapsuladas. As chamadas internas da base
+    /// (ex.: <c>Excluir(T)</c> usando <c>Item</c>) continuam usando as versões cruas — sem embrulho duplo.
     /// </para>
     /// <para>
     /// <b>Concorrência:</b> a captura de erro assina os eventos da instância <b>durante</b> a chamada.
@@ -28,45 +34,45 @@ namespace Yordi.EntityMultiSQL
         public RepositorioResult(IBDConexao bd) : base(bd) { }
 
         #region Consultas
-        public new Task<Result<T>> Item(T obj)
+        public new virtual Task<Result<T>> Item(T obj)
         { Func<T, Task<T?>> op = base.Item; return Executar(() => op(obj), DeObjeto); }
 
-        public new Task<Result<T>> Item(int autoIncrement)
+        public new virtual Task<Result<T>> Item(int autoIncrement)
         { Func<int, Task<T?>> op = base.Item; return Executar(() => op(autoIncrement), DeObjeto); }
 
-        public new Task<Result<IEnumerable<T>>> Lista()
+        public new virtual Task<Result<IEnumerable<T>>> Lista()
         { Func<Task<IEnumerable<T>?>> op = base.Lista; return Executar(op, DeLista); }
 
-        public new Task<Result<IEnumerable<T>>> Lista(Func<T, bool> where)
+        public new virtual Task<Result<IEnumerable<T>>> Lista(Func<T, bool> where)
         { Func<Func<T, bool>, Task<IEnumerable<T>?>> op = base.Lista; return Executar(() => op(where), DeLista); }
 
-        public new Task<Result<IEnumerable<T>>> Lista(IEnumerable<Chave> keys, bool ou = false)
+        public new virtual Task<Result<IEnumerable<T>>> Lista(IEnumerable<Chave> keys, bool ou = false)
         { Func<IEnumerable<Chave>, bool, Task<IEnumerable<T>?>> op = base.Lista; return Executar(() => op(keys, ou), DeLista); }
 
-        public new Task<Result<IEnumerable<T>>> Lista(DateTime inicial, DateTime final)
+        public new virtual Task<Result<IEnumerable<T>>> Lista(DateTime inicial, DateTime final)
         { Func<DateTime, DateTime, Task<IEnumerable<T>?>> op = base.Lista; return Executar(() => op(inicial, final), DeLista); }
 
-        public new Task<Result<IEnumerable<T>>> Lista(int[] ids)
+        public new virtual Task<Result<IEnumerable<T>>> Lista(int[] ids)
         { Func<int[], Task<IEnumerable<T>?>> op = base.Lista; return Executar(() => op(ids), DeLista); }
 
-        public new Task<Result<IEnumerable<T>>> Lista(int[] ids, string campoUnico)
+        public new virtual Task<Result<IEnumerable<T>>> Lista(int[] ids, string campoUnico)
         { Func<int[], string, Task<IEnumerable<T>?>> op = base.Lista; return Executar(() => op(ids, campoUnico), DeLista); }
         #endregion
 
         #region Escrita unitária
-        public new Task<Result<T>> Incluir(T obj)
+        public new virtual Task<Result<T>> Incluir(T obj)
         { Func<T, Task<T?>> op = base.Incluir; return Executar(() => op(obj), DeObjeto); }
 
-        public new Task<Result<T>> Atualizar(T obj)
+        public new virtual Task<Result<T>> Atualizar(T obj)
         { Func<T, Task<T?>> op = base.Atualizar; return Executar(() => op(obj), DeObjeto); }
 
-        public new Task<Result<T>> AtualizarOuIncluir(T obj)
+        public new virtual Task<Result<T>> AtualizarOuIncluir(T obj)
         { Func<T, Task<T?>> op = base.AtualizarOuIncluir; return Executar(() => op(obj), DeObjeto); }
 
-        public new Task<Result<T>> Upsert(T obj)
+        public new virtual Task<Result<T>> Upsert(T obj)
         { Func<T, Task<T?>> op = base.Upsert; return Executar(() => op(obj), DeObjeto); }
 
-        public new Task<Result<bool>> Excluir(T obj)
+        public new virtual Task<Result<bool>> Excluir(T obj)
         {
             Func<T, Task<bool>> op = base.Excluir;
             return Executar(() => op(obj), ok => ok
@@ -76,16 +82,16 @@ namespace Yordi.EntityMultiSQL
         #endregion
 
         #region Escrita em lote
-        public new Task<Result<IEnumerable<T>>> Incluir(IEnumerable<T> lista)
+        public new virtual Task<Result<IEnumerable<T>>> Incluir(IEnumerable<T> lista)
         { Func<IEnumerable<T>, Task<IEnumerable<T>>> op = base.Incluir; return Executar(() => op(lista), DeLista); }
 
-        public new Task<Result<IEnumerable<T>>> Atualizar(IEnumerable<T> lista)
+        public new virtual Task<Result<IEnumerable<T>>> Atualizar(IEnumerable<T> lista)
         { Func<IEnumerable<T>, Task<IEnumerable<T>?>> op = base.Atualizar; return Executar(() => op(lista), DeLista); }
 
-        public new Task<Result<IEnumerable<T>>> AtualizarOuIncluir(IEnumerable<T> lista, bool dispararEventoProgresso = false)
+        public new virtual Task<Result<IEnumerable<T>>> AtualizarOuIncluir(IEnumerable<T> lista, bool dispararEventoProgresso = false)
         { Func<IEnumerable<T>, bool, Task<IEnumerable<T>?>> op = base.AtualizarOuIncluir; return Executar(() => op(lista, dispararEventoProgresso), DeLista); }
 
-        public new Task<Result<int>> Excluir(IEnumerable<T> lista)
+        public new virtual Task<Result<int>> Excluir(IEnumerable<T> lista)
         {
             Func<IEnumerable<T>, Task<int>> op = base.Excluir;
             return Executar(() => op(lista), n => n > 0

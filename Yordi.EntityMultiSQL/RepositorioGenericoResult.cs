@@ -20,7 +20,7 @@ namespace Yordi.EntityMultiSQL
         /// Busca textual (apenas para classes <c>IDescricao</c> + <c>IAuto</c>):
         /// vazio = lista completa; numérico = igualdade por <c>Auto</c>; texto = <c>CONTÉM</c> em <c>Descricao</c>.
         /// </summary>
-        public Task<Result<IEnumerable<T>>> Lista(string procuraPor)
+        public virtual Task<Result<IEnumerable<T>>> Lista(string procuraPor)
         {
             if (!(typeof(T).IsOfGenericType(typeof(IDescricao)) && typeof(T).IsOfGenericType(typeof(IAuto))))
                 return Task.FromResult(Result<IEnumerable<T>>.NaoEncontrado($"{typeof(T).Name} não implementa IDescricao+IAuto"));
@@ -44,7 +44,7 @@ namespace Yordi.EntityMultiSQL
         }
 
         /// <summary>Faixa de <c>Auto</c> em [<paramref name="inicial"/>, <paramref name="final"/>] (apenas para classes <c>IAuto</c>).</summary>
-        public Task<Result<IEnumerable<T>>> PorAutoMinMax(int inicial, int final)
+        public virtual Task<Result<IEnumerable<T>>> PorAutoMinMax(int inicial, int final)
         {
             if (!typeof(T).IsOfGenericType(typeof(IAuto)))
                 return Task.FromResult(Result<IEnumerable<T>>.NaoEncontrado($"{typeof(T).Name} não implementa IAuto"));
